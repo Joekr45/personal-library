@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  personal-library:
+    image: personal-library:latest
+    container_name: personal-library
+    restart: unless-stopped
+    ports:
+      - "8085:80"
+    environment:
+      - PUID=99
+      - PGID=100
+      - TZ=America/New_York
+    volumes:
+      - /mnt/user/appdata/personal-library/data:/usr/share/nginx/html/data
