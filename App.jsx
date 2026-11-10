@@ -290,13 +290,22 @@ try {
       if (gData.items && gData.items.length > 0) {
         const info = gData.items[0].volumeInfo;
         const authorName = info.authors ? info.authors.join(', ') : '';
-        if (authorName) {
-          setScanResult({
-            workTitle: info.title || 'Untitled Book',
-            author: authorName,
-            series: null,
-            seriesNumber: null,
-         coverUrl: `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+       if (authorName) {
+      let finalCover = `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`;
+      const searchRes = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(info.title)}&author=${encodeURIComponent(authorName)}&limit=1`).catch(() => null);
+      if (searchRes && searchRes.ok) {
+        const sData = await searchRes.json();
+        if (sData.docs?.[0]?.cover_i) {
+          finalCover = `https://covers.openlibrary.org/b/id/${sData.docs[0].cover_i}-L.jpg`;
+        }
+      }
+
+      setScanResult({
+        workTitle: info.title || 'Untitled Book',
+        author: authorName,
+        series: null,
+        seriesNumber: null,
+        coverUrl: finalCover,
             edition: {
               title: info.title || 'Untitled Book',
               language: 'English',
