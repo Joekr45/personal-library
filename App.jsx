@@ -1885,31 +1885,38 @@ try {
                     </span>
                   </div>
 
-                  <div className="flex gap-4 items-center">
-                    <div className="w-16 h-24 rounded-lg overflow-hidden border border-emerald-300 shadow-xs flex-shrink-0 bg-white">
-                      {scanResult.coverUrl ? (
-                       <img
+                 <div className="flex gap-4 items-start">
+                <div className="w-16 h-24 rounded-lg overflow-hidden border border-emerald-300 shadow-xs flex-shrink-0 bg-white">
+                  {scanResult.coverUrl ? (
+                    <img
                       src={scanResult.coverUrl}
                       alt={scanResult.workTitle}
-                      className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition"
-                      onClick={() => {
-                        const custom = prompt("Paste cover image URL:", scanResult.coverUrl);
-                        if (custom) setScanResult(prev => ({ ...prev, coverUrl: custom }));
-                      }}
-                      title="Tap to change cover"
+                      className="w-full h-full object-cover"
                     />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
-                      )}
-                    </div>
-                    <div className="text-xs min-w-0 flex-1">
-                      <div className="font-bold text-slate-900 text-sm truncate">{scanResult.workTitle}</div>
-                      <div className="text-slate-600">by {scanResult.author}</div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        {scanResult.edition.published} • {scanResult.edition.format}
-                      </div>
-                    </div>
-                  </div>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
+                  )}
+                </div>
+
+                <div className="text-xs min-w-0 flex-1 space-y-1">
+                  <div className="font-bold text-slate-900 text-sm truncate">{scanResult.workTitle}</div>
+                  <div className="text-slate-600">by {scanResult.author}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {scanResult.edition.published} • {scanResult.edition.format}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newUrl = window.prompt("Paste direct image URL for the front cover:", scanResult.coverUrl || "");
+                      if (newUrl && newUrl.trim()) {
+                        setScanResult(prev => ({ ...prev, coverUrl: newUrl.trim() }));
+                      }
+                    }}
+                    className="inline-block mt-1 px-2.5 py-1 bg-white border border-emerald-300 text-emerald-800 rounded text-[11px] font-medium shadow-xs hover:bg-emerald-50 active:bg-emerald-100"
+                  >
+                    ✏️ Change Cover
+                  </button>
+                </div>
+              </div>
 
                   <button
                     onClick={handleAddScannedBook}
