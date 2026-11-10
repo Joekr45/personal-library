@@ -264,7 +264,7 @@ export default function App() {
   const handleLookupIsbn = async (rawIsbn) => {
     const raw = (rawIsbn || scannedIsbnInput).trim().replace(/[^0-9X]/gi, '');
     if (!raw) return;
-    if (raw.length !== 10 && raw.length !== 13) return;
+   if (raw.length !== 10 && raw.length !== 12 && raw.length !== 13) return;
     const existing = books.find(b =>
       b.editions.some(e => e.isbn.replace(/[^0-9X]/gi, '') === raw)
     );
@@ -283,7 +283,8 @@ try {
  const cleanIsbn = raw.replace(/[^0-9X]/gi, '');
     
     // 1. Try Google Books
-    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`).catch(() => null);
+    const gQuery = cleanIsbn.length === 12 ? `q=${cleanIsbn}` : `q=isbn:${cleanIsbn}`;
+    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?${gQuery}`).catch(() => null);
     if (gRes && gRes.ok) {
       const gData = await gRes.json();
       if (gData.items && gData.items.length > 0) {
@@ -311,10 +312,11 @@ try {
     }
 
     // 2. Open Library fallback (with full author names)
-    const olRes = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`).catch(() => null);
-    if (olRes && olRes.ok) {
-      const olData = await olRes.json();
-      const bookKey = `ISBN:${cleanIsbn}`;
+   const bibkey = cleanIsbn.length === 12 ? `UPC:${cleanIsbn}` : `ISBN:${cleanIsbn}`;
+  const olRes = await fetch(`https://openlibrary.org/api/books?bibkeys=${bibkey}&format=json&jscmd=data`).catch(() => null);
+  if (olRes && olRes.ok) {
+    const olData = await olRes.json();
+    const bookKey = bibkey;
       if (olData[bookKey]) {
         const book = olData[bookKey];
         const authorName = book.authors ? book.authors.map(a => a.name).join(', ') : '';
