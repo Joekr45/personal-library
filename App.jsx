@@ -340,16 +340,38 @@ try {
     const olData = await olRes.json();
     const bookKey = bibkey;
       if (olData[bookKey]) {
-        const book = olData[bookKey];
+      const book = olData[bookKey];
         const authorName = book.authors ? book.authors.map(a => a.name).join(', ') : '';
+        const workTitle = book.title || 'Untitled Book';
+
+        const coverSet = new Set();
+        if (book.cover?.large) coverSet.add(book.cover.large);
+        if (book.cover?.medium) coverSet.add(book.cover.medium);
+        coverSet.add(`https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`);
+
+        const searchRes = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(workTitle)}&limit=1`).catch(() => null);
+        if (searchRes && searchRes.ok) {
+          const sData = await searchRes.json();
+          const doc = sData.docs?.[0];
+          if (doc?.cover_i) coverSet.add(`https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`);
+          if (Array.isArray(doc?.edition_key)) {
+            doc.edition_key.slice(0, 8).forEach(k => {
+              coverSet.add(`https://covers.openlibrary.org/b/olid/${k}-L.jpg`);
+            });
+          }
+        }
+
+        const availableCovers = Array.from(coverSet);
+
         setScanResult({
-          workTitle: book.title || 'Untitled Book',
+          workTitle,
           author: authorName || 'Unknown Author',
           series: null,
           seriesNumber: null,
-          coverUrl: book.cover?.large || book.cover?.medium || `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+          coverUrl: availableCovers[0] || null,
+          availableCovers,
           edition: {
-            title: book.title || 'Untitled Book',
+            title: workTitle,
             language: 'English',
             format: 'Physical Print',
             isbn: cleanIsbn,
@@ -1879,7 +1901,7 @@ try {
                         {scanResult.edition.published} • {scanResult.edition.format}
                       </div>
 
-                      {scanResult.availableCovers && scanResult.availableCovers.length > 1 && (
+                      {scanResult.availableCovers && scanResult.availableCovers.length > 0 && (
                   <div className="pt-2">
                     <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
                       Choose Cover Edition:
