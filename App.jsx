@@ -264,7 +264,7 @@ export default function App() {
   const handleLookupIsbn = async (rawIsbn) => {
     const raw = (rawIsbn || scannedIsbnInput).trim().replace(/[^0-9X]/gi, '');
     if (!raw) return;
-
+    if (raw.length !== 10 && raw.length !== 13) return;
     const existing = books.find(b =>
       b.editions.some(e => e.isbn.replace(/[^0-9X]/gi, '') === raw)
     );
@@ -295,7 +295,7 @@ try {
             author: authorName,
             series: null,
             seriesNumber: null,
-            coverUrl: info.imageLinks?.thumbnail || `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+         coverUrl: `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg?default=false` || info.imageLinks?.thumbnail,
             edition: {
               title: info.title || 'Untitled Book',
               language: 'English',
