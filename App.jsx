@@ -1888,11 +1888,16 @@ try {
                   <div className="flex gap-4 items-center">
                     <div className="w-16 h-24 rounded-lg overflow-hidden border border-emerald-300 shadow-xs flex-shrink-0 bg-white">
                       {scanResult.coverUrl ? (
-                        <img
-                          src={scanResult.coverUrl}
-                          alt={scanResult.workTitle}
-                          className="w-full h-full object-cover"
-                        />
+                       <img
+                      src={scanResult.coverUrl}
+                      alt={scanResult.workTitle}
+                      className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition"
+                      onClick={() => {
+                        const custom = prompt("Paste cover image URL:", scanResult.coverUrl);
+                        if (custom) setScanResult(prev => ({ ...prev, coverUrl: custom }));
+                      }}
+                      title="Tap to change cover"
+                    />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
                       )}
