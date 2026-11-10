@@ -267,24 +267,27 @@ export default function App() {
     setDuplicateAlert(null);
     setIsLookingUpIsbn(true);
 try {
-      const cleanIsbn = raw.replace(/[^0-9X]/gi, '');
-const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`).catch(() => null);
-      if (gRes && gRes.ok) {
-        const gData = await gRes.json();
-        if (gData.items && gData.items.length > 0) {
-          const info = gData.items[0].volumeInfo;
-          const authorName = info.authors ? info.authors.join(', ') : 'Author on File';
+ const cleanIsbn = raw.replace(/[^0-9X]/gi, '');
+    
+    // 1. Try Google Books
+    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`).catch(() => null);
+    if (gRes && gRes.ok) {
+      const gData = await gRes.json();
+      if (gData.items && gData.items.length > 0) {
+        const info = gData.items[0].volumeInfo;
+        const authorName = info.authors ? info.authors.join(', ') : '';
+        if (authorName) {
           setScanResult({
             workTitle: info.title || 'Untitled Book',
             author: authorName,
             series: null,
             seriesNumber: null,
-            coverUrl: info.imageLinks?.thumbnail || `https://covers.openlibrary.org/b/isbn/${raw}-L.jpg`,
+            coverUrl: info.imageLinks?.thumbnail || `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
             edition: {
               title: info.title || 'Untitled Book',
               language: 'English',
               format: 'Physical Print',
-              isbn: raw,
+              isbn: cleanIsbn,
               published: info.publishedDate || 'Catalog Print',
               publisher: info.publisher || 'Publisher'
             }
@@ -292,6 +295,34 @@ const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${c
           return;
         }
       }
+    }
+
+    // 2. Open Library fallback (with full author names)
+    const olRes = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`).catch(() => null);
+    if (olRes && olRes.ok) {
+      const olData = await olRes.json();
+      const bookKey = `ISBN:${cleanIsbn}`;
+      if (olData[bookKey]) {
+        const book = olData[bookKey];
+        const authorName = book.authors ? book.authors.map(a => a.name).join(', ') : '';
+        setScanResult({
+          workTitle: book.title || 'Untitled Book',
+          author: authorName || 'Unknown Author',
+          series: null,
+          seriesNumber: null,
+          coverUrl: book.cover?.large || book.cover?.medium || `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+          edition: {
+            title: book.title || 'Untitled Book',
+            language: 'English',
+            format: 'Physical Print',
+            isbn: cleanIsbn,
+            published: book.publish_date || 'Catalog Print',
+            publisher: book.publishers ? book.publishers.map(p => p.name).join(', ') : 'Publisher'
+          }
+        });
+        return;
+      }
+    }
 
       setScanResult({
         workTitle: `Book (ISBN: ${raw})`,
