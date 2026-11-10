@@ -1924,13 +1924,13 @@ try {
                   >
                     + Place In My Library
                   </button>
-                </div>
+               </div>
               )}
             </div>
-      )}
-    </div>
-  );
-}
+          </div>
+        </div>
+      );
+    }
 
 // Apple Books Cover with Image Fallback
 function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
