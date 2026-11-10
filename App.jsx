@@ -267,7 +267,8 @@ export default function App() {
     setDuplicateAlert(null);
     setIsLookingUpIsbn(true);
 try {
-      const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${raw}`).catch(() => null);
+      const cleanIsbn = raw.replace(/[^0-9X]/gi, '');
+const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`).catch(() => null);
       if (gRes && gRes.ok) {
         const gData = await gRes.json();
         if (gData.items && gData.items.length > 0) {
