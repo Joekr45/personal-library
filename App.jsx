@@ -68,7 +68,16 @@ export default function App() {
       })
       .catch(err => console.warn('Could not sync users from server:', err));
   }, []);
-
+useEffect(() => {
+    fetch('/api/library')
+      .then(res => res.json())
+      .then(serverLib => {
+        if (serverLib && typeof serverLib === 'object' && Object.keys(serverLib).length > 0) {
+          setUserLibraries(prev => ({ ...prev, ...serverLib }));
+        }
+      })
+      .catch(err => console.warn('Could not sync library from server:', err));
+  }, []);
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('personal_library_current_user');
     return saved ? JSON.parse(saved) : null;
@@ -100,8 +109,13 @@ export default function App() {
     }
   }, [currentUser]);
 
-  useEffect(() => {
+ useEffect(() => {
     localStorage.setItem('personal_library_data', JSON.stringify(userLibraries));
+    fetch('/api/library', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userLibraries)
+    }).catch(err => console.warn('Could not save library to server:', err));
   }, [userLibraries]);
 
   const books = currentUser ? userLibraries[currentUser.id] || [] : [];
