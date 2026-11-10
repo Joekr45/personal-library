@@ -295,8 +295,12 @@ try {
       const searchRes = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(info.title)}&author=${encodeURIComponent(authorName)}&limit=1`).catch(() => null);
       if (searchRes && searchRes.ok) {
         const sData = await searchRes.json();
-        if (sData.docs?.[0]?.cover_i) {
-          finalCover = `https://covers.openlibrary.org/b/id/${sData.docs[0].cover_i}-L.jpg`;
+       const doc = sData.docs?.[0];
+        const validCoverId = doc?.cover_edition_key || doc?.edition_key?.[0];
+        if (validCoverId) {
+          finalCover = `https://covers.openlibrary.org/b/olid/${validCoverId}-L.jpg`;
+        } else if (doc?.cover_i) {
+          finalCover = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
         }
       }
 
