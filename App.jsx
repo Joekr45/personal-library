@@ -267,7 +267,6 @@ export default function App() {
     setDuplicateAlert(null);
     setIsLookingUpIsbn(true);
 
-    try {
    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${raw}`).catch(() => null);
     if (gRes && gRes.ok) {
       const gData = await gRes.json();
@@ -292,7 +291,6 @@ export default function App() {
         return;
       }
     }
- }
       setScanResult({
         workTitle: `Book (ISBN: ${raw})`,
         author: 'Please enter author',
