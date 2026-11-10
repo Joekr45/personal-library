@@ -287,29 +287,39 @@ try {
     const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?${gQuery}`).catch(() => null);
     if (gRes && gRes.ok) {
       const gData = await gRes.json();
-      if (gData.items && gData.items.length > 0) {
+     if (gData.items && gData.items.length > 0) {
         const info = gData.items[0].volumeInfo;
         const authorName = info.authors ? info.authors.join(', ') : '';
-       if (authorName) {
-      let finalCover = `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`;
-      const searchRes = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(info.title)}&author=${encodeURIComponent(authorName)}&limit=1`).catch(() => null);
-      if (searchRes && searchRes.ok) {
-        const sData = await searchRes.json();
-       const doc = sData.docs?.[0];
-        const validCoverId = doc?.cover_edition_key || doc?.edition_key?.[0];
-        if (validCoverId) {
-          finalCover = `https://covers.openlibrary.org/b/olid/${validCoverId}-L.jpg`;
-        } else if (doc?.cover_i) {
-          finalCover = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
-        }
-      }
+        if (authorName) {
+          const coverSet = new Set();
+          if (info.imageLinks?.thumbnail) {
+            coverSet.add(info.imageLinks.thumbnail.replace('http://', 'https://'));
+          }
+          coverSet.add(`https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`);
 
-      setScanResult({
-        workTitle: info.title || 'Untitled Book',
-        author: authorName,
-        series: null,
-        seriesNumber: null,
-        coverUrl: finalCover,
+          const searchRes = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(info.title)}&author=${encodeURIComponent(authorName)}&limit=1`).catch(() => null);
+          if (searchRes && searchRes.ok) {
+            const sData = await searchRes.json();
+            const doc = sData.docs?.[0];
+            if (doc?.cover_i) {
+              coverSet.add(`https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`);
+            }
+            if (Array.isArray(doc?.edition_key)) {
+              doc.edition_key.slice(0, 8).forEach(k => {
+                coverSet.add(`https://covers.openlibrary.org/b/olid/${k}-L.jpg`);
+              });
+            }
+          }
+
+          const availableCovers = Array.from(coverSet);
+
+          setScanResult({
+            workTitle: info.title || 'Untitled Book',
+            author: authorName,
+            series: null,
+            seriesNumber: null,
+            coverUrl: availableCovers[0] || null,
+            availableCovers,
             edition: {
               title: info.title || 'Untitled Book',
               language: 'English',
@@ -321,6 +331,7 @@ try {
           });
           return;
         }
+      }
       }
     }
 
@@ -1870,18 +1881,34 @@ try {
                         {scanResult.edition.published} • {scanResult.edition.format}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newUrl = window.prompt("Paste direct image URL for the front cover:", scanResult.coverUrl || "");
-                          if (newUrl && newUrl.trim()) {
-                            setScanResult(prev => ({ ...prev, coverUrl: newUrl.trim() }));
-                          }
-                        }}
-                        className="inline-block mt-1 px-2.5 py-1 bg-white border border-emerald-300 text-emerald-800 rounded text-[11px] font-medium shadow-xs hover:bg-emerald-50 active:bg-emerald-100"
-                      >
-                        ✏️ Change Cover
-                      </button>
+                      {scanResult.availableCovers && scanResult.availableCovers.length > 1 && (
+                  <div className="pt-2">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                      Choose Cover Edition:
+                    </span>
+                    <div className="flex gap-2 overflow-x-auto pb-1 max-w-[280px]">
+                      {scanResult.availableCovers.map((url, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setScanResult(prev => ({ ...prev, coverUrl: url }))}
+                          className={`relative shrink-0 w-11 h-16 rounded-md overflow-hidden border-2 transition-all ${
+                            scanResult.coverUrl === url
+                              ? 'border-emerald-600 ring-2 ring-emerald-500/30 scale-105'
+                              : 'border-slate-200 hover:border-slate-400 opacity-70 hover:opacity-100'
+                          }`}
+                        >
+                          <img
+                            src={url}
+                            alt="Cover Option"
+                            className="w-full h-full object-cover"
+                            onError={(e) => { e.currentTarget.parentElement.style.display = 'none'; }}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                     </div>
                   </div>
 
