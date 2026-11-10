@@ -1751,7 +1751,7 @@ try {
         </div>
       )}
 
-      {/* MODAL: LIVE CAMERA BARCODE SCANNER */}
+     {/* MODAL: LIVE CAMERA BARCODE SCANNER */}
       {isScanModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
           <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden flex flex-col max-h-[95vh]">
@@ -1788,135 +1788,102 @@ try {
             </div>
 
             <div className="p-5 overflow-y-auto space-y-4">
-              {scanMode === 'camera' && (
+              {scanMode === 'camera' ? (
                 <div className="space-y-3">
-                  <div className="relative aspect-video w-full bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800">
+                  <div className="relative aspect-video bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800">
                     <video
                       ref={videoRef}
+                      autoPlay
                       playsInline
                       muted
-                      autoPlay
-                      className={`w-full h-full object-cover ${isCameraActive ? 'block' : 'hidden'}`}
+                      className="w-full h-full object-cover"
                     />
-                    {!isCameraActive && (
-                      <div className="p-6 text-center text-slate-400 space-y-2">
-                        <CameraOff className="w-8 h-8 mx-auto opacity-50" />
-                        <p className="text-xs font-medium text-slate-300">{cameraError || 'Camera initializing...'}</p>
-                        <button
-                          onClick={startCameraStream}
-                          className="px-3 py-1 bg-slate-800 text-white rounded-lg text-xs font-medium"
-                        >
-                          Retry Camera
-                        </button>
-                      </div>
-                    )}
-                    {isCameraActive && (
-                      <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-                        <div className={`w-64 h-32 border-2 rounded-xl transition-all duration-300 relative ${
-                          scanSuccessFeedback
-                            ? 'border-emerald-400 bg-emerald-500/20 shadow-[0_0_20px_rgba(52,211,153,0.8)]'
-                            : 'border-orange-500 bg-orange-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]'
-                        }`}>
-                          <div className="absolute -top-1 -left-1 w-3 h-3 border-t-2 border-l-2 border-white" />
-                          <div className="absolute -top-1 -right-1 w-3 h-3 border-t-2 border-r-2 border-white" />
-                          <div className="absolute -bottom-1 -left-1 w-3 h-3 border-b-2 border-l-2 border-white" />
-                          <div className="absolute -bottom-1 -right-1 w-3 h-3 border-b-2 border-r-2 border-white" />
-                          <div className="w-full h-0.5 bg-red-500 animate-pulse mt-16 shadow-[0_0_8px_rgba(239,68,68,1)]" />
-                        </div>
-                        {scanSuccessFeedback && (
-                          <div className="mt-3 px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-full shadow-lg flex items-center gap-1.5 animate-bounce">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Barcode Locked!</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <div className="absolute inset-0 border-2 border-orange-500/50 rounded-2xl pointer-events-none" />
                   </div>
-                  <div className="text-center">
-                    <p className="text-[11px] text-slate-500">
-                      Center the barcode inside the box. It will automatically lock on and scan.
-                    </p>
+                  {cameraError && (
+                    <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">
+                      {cameraError}
+                    </div>
+                  )}
+                  {scanSuccessFeedback && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl text-center font-semibold">
+                      Barcode Detected!
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Enter 10 or 13 digit ISBN..."
+                      value={scannedIsbnInput}
+                      onChange={(e) => setScannedIsbnInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleLookupIsbn(scannedIsbnInput); }}
+                      className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
+                    />
+                    <button
+                      onClick={() => handleLookupIsbn(scannedIsbnInput)}
+                      disabled={isLookingUpIsbn || !scannedIsbnInput.trim()}
+                      className="px-4 py-2 bg-orange-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold hover:bg-orange-600 shadow-xs flex items-center gap-1.5"
+                    >
+                      {isLookingUpIsbn ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Finding...</span>
+                        </>
+                      ) : (
+                        <span>Lookup ISBN</span>
+                      )}
+                    </button>
                   </div>
                 </div>
               )}
 
-              <div className="space-y-3">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={scannedIsbnInput}
-                    onChange={(e) => setScannedIsbnInput(e.target.value)}
-                    placeholder="Type or paste ISBN (e.g. 9780446610032)..."
-                    className="flex-1 px-3 py-2 text-xs border border-slate-200 rounded-xl font-mono focus:outline-none focus:border-orange-500"
-                  />
-                  <button
-                    disabled={isLookingUpIsbn || !scannedIsbnInput.trim()}
-                    onClick={() => handleLookupIsbn(scannedIsbnInput)}
-                    className="px-4 py-2 bg-orange-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold hover:bg-orange-600 shadow-xs flex items-center gap-1.5"
-                  >
-                    {isLookingUpIsbn ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Finding...</span>
-                      </>
-                    ) : (
-                      <span>Lookup ISBN</span>
-                    )}
-                  </button>
-                </div>
-              </div>
-
               {duplicateAlert && (
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="text-xs font-bold text-amber-900">Duplicate Copy Detected</h4>
-                    <p className="text-xs text-amber-800 mt-0.5">{duplicateAlert.message}</p>
+                  <div className="text-xs text-amber-800 font-medium">
+                    {duplicateAlert.message}
                   </div>
                 </div>
               )}
 
               {scanResult && (
                 <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-800">Book Found</span>
-                    <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                      ISBN: {scanResult.edition.isbn}
-                    </span>
+                  <div className="flex gap-4 items-start">
+                    <div className="w-16 h-24 bg-white rounded-lg border border-emerald-200 overflow-hidden shrink-0 shadow-xs">
+                      {scanResult.coverUrl ? (
+                        <img
+                          src={scanResult.coverUrl}
+                          alt={scanResult.workTitle}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
+                      )}
+                    </div>
+
+                    <div className="text-xs min-w-0 flex-1 space-y-1">
+                      <div className="font-bold text-slate-900 text-sm truncate">{scanResult.workTitle}</div>
+                      <div className="text-slate-600">by {scanResult.author}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {scanResult.edition.published} • {scanResult.edition.format}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newUrl = window.prompt("Paste direct image URL for the front cover:", scanResult.coverUrl || "");
+                          if (newUrl && newUrl.trim()) {
+                            setScanResult(prev => ({ ...prev, coverUrl: newUrl.trim() }));
+                          }
+                        }}
+                        className="inline-block mt-1 px-2.5 py-1 bg-white border border-emerald-300 text-emerald-800 rounded text-[11px] font-medium shadow-xs hover:bg-emerald-50 active:bg-emerald-100"
+                      >
+                        ✏️ Change Cover
+                      </button>
+                    </div>
                   </div>
-
-                 <div className="flex gap-4 items-start">
-                <div className="w-16 h-24 rounded-lg overflow-hidden border border-emerald-300 shadow-xs flex-shrink-0 bg-white">
-                  {scanResult.coverUrl ? (
-                    <img
-                      src={scanResult.coverUrl}
-                      alt={scanResult.workTitle}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
-                  )}
-                </div>
-
-                <div className="text-xs min-w-0 flex-1 space-y-1">
-                  <div className="font-bold text-slate-900 text-sm truncate">{scanResult.workTitle}</div>
-                  <div className="text-slate-600">by {scanResult.author}</div>
-                 <div className="text-[11px] text-slate-500">
-  {scanResult.edition.published} • {scanResult.edition.format}
-</div>
-<button
-                    onClick={() => {
-                      const newUrl = window.prompt("Paste direct image URL for the front cover:", scanResult.coverUrl || "");
-                      if (newUrl && newUrl.trim()) {
-                        setScanResult(prev => ({ ...prev, coverUrl: newUrl.trim() }));
-                      }
-                    }}
-                    className="inline-block mt-1 px-2.5 py-1 bg-white border border-emerald-300 text-emerald-800 rounded text-[11px] font-medium shadow-xs hover:bg-emerald-50 active:bg-emerald-100"
-                  >
-                    ✏️ Change Cover
-                  </button>
-                </div>
-              </div>
 
                   <button
                     onClick={handleAddScannedBook}
@@ -1924,15 +1891,15 @@ try {
                   >
                     + Place In My Library
                   </button>
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-    )}
+      )}
+    </div>
   );
 }
-
 // Apple Books Cover with Image Fallback
 function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
   const [imageLoaded, setImageLoaded] = useState(false);
