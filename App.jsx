@@ -266,31 +266,32 @@ export default function App() {
 
     setDuplicateAlert(null);
     setIsLookingUpIsbn(true);
-
-   const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${raw}`).catch(() => null);
-    if (gRes && gRes.ok) {
-      const gData = await gRes.json();
-      if (gData.items && gData.items.length > 0) {
-        const info = gData.items[0].volumeInfo;
-        const authorName = info.authors ? info.authors.join(', ') : 'Author on File';
-        setScanResult({
-          workTitle: info.title || 'Untitled Book',
-          author: authorName,
-          series: null,
-          seriesNumber: null,
-          coverUrl: info.imageLinks?.thumbnail || `https://covers.openlibrary.org/b/isbn/${raw}-L.jpg`,
-          edition: {
-            title: info.title || 'Untitled Book',
-            language: 'English',
-            format: 'Physical Print',
-            isbn: raw,
-            published: info.publishedDate || 'Catalog Print',
-            publisher: info.publisher || 'Publisher'
-          }
-        });
-        return;
+try {
+      const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${raw}`).catch(() => null);
+      if (gRes && gRes.ok) {
+        const gData = await gRes.json();
+        if (gData.items && gData.items.length > 0) {
+          const info = gData.items[0].volumeInfo;
+          const authorName = info.authors ? info.authors.join(', ') : 'Author on File';
+          setScanResult({
+            workTitle: info.title || 'Untitled Book',
+            author: authorName,
+            series: null,
+            seriesNumber: null,
+            coverUrl: info.imageLinks?.thumbnail || `https://covers.openlibrary.org/b/isbn/${raw}-L.jpg`,
+            edition: {
+              title: info.title || 'Untitled Book',
+              language: 'English',
+              format: 'Physical Print',
+              isbn: raw,
+              published: info.publishedDate || 'Catalog Print',
+              publisher: info.publisher || 'Publisher'
+            }
+          });
+          return;
+        }
       }
-    }
+
       setScanResult({
         workTitle: `Book (ISBN: ${raw})`,
         author: 'Please enter author',
@@ -302,7 +303,7 @@ export default function App() {
           language: 'English',
           format: 'Physical Print',
           isbn: raw,
-          published: 'Edition',
+          published: 'Catalog Print',
           publisher: 'Publisher'
         }
       });
