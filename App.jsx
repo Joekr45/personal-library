@@ -268,30 +268,31 @@ export default function App() {
     setIsLookingUpIsbn(true);
 
     try {
-      const olRes = await fetch(`https://openlibrary.org/isbn/${raw}.json`, {
-        mode: 'cors'
-      }).catch(() => null);
-
-      if (olRes && olRes.ok) {
-        const olData = await olRes.json();
+   const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${raw}`).catch(() => null);
+    if (gRes && gRes.ok) {
+      const gData = await gRes.json();
+      if (gData.items && gData.items.length > 0) {
+        const info = gData.items[0].volumeInfo;
+        const authorName = info.authors ? info.authors.join(', ') : 'Author on File';
         setScanResult({
-          workTitle: olData.title || 'Untitled Book',
-          author: olData.by_statement || 'Author on File',
+          workTitle: info.title || 'Untitled Book',
+          author: authorName,
           series: null,
           seriesNumber: null,
-          coverUrl: `https://covers.openlibrary.org/b/isbn/${raw}-L.jpg`,
+          coverUrl: info.imageLinks?.thumbnail || `https://covers.openlibrary.org/b/isbn/${raw}-L.jpg`,
           edition: {
-            title: olData.title || 'Untitled Book',
+            title: info.title || 'Untitled Book',
             language: 'English',
             format: 'Physical Print',
             isbn: raw,
-            published: olData.publish_date || 'Catalog Print',
-            publisher: (olData.publishers && olData.publishers[0]) || 'Publisher'
+            published: info.publishedDate || 'Catalog Print',
+            publisher: info.publisher || 'Publisher'
           }
         });
         return;
       }
-
+    }
+ }
       setScanResult({
         workTitle: `Book (ISBN: ${raw})`,
         author: 'Please enter author',
