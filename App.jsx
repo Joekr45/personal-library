@@ -110,6 +110,7 @@ useEffect(() => {
   }, [currentUser]);
 
  useEffect(() => {
+   if (!userLibraries || Object.keys(userLibraries).length === 0) return;
     localStorage.setItem('personal_library_data', JSON.stringify(userLibraries));
     fetch('/api/library', {
       method: 'POST',
