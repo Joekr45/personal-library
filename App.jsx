@@ -55,11 +55,19 @@ const INITIAL_USERS = [
 ];
 
 export default function App() {
-  // Authentication State
-  const [users, setUsers] = useState(() => {
-    const saved = localStorage.getItem('personal_library_users');
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
-  });
+// Authentication State
+  const [users, setUsers] = useState(INITIAL_USERS);
+
+  useEffect(() => {
+    fetch('/api/users')
+      .then(res => res.json())
+      .then(serverUsers => {
+        if (Array.isArray(serverUsers) && serverUsers.length > 0) {
+          setUsers(serverUsers);
+        }
+      })
+      .catch(err => console.warn('Could not sync users from server:', err));
+  }, []);
 
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('personal_library_current_user');
@@ -232,6 +240,11 @@ export default function App() {
       };
 
       setUsers(prev => [...prev, newUser]);
+      fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newUser)
+    }).catch(err => console.error('Failed to sync registration to server:', err));
       setUserLibraries(prev => ({ ...prev, [newId]: [] }));
       setCurrentUser(newUser);
       setAuthEmail('');
