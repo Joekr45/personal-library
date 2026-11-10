@@ -296,7 +296,7 @@ try {
             author: authorName,
             series: null,
             seriesNumber: null,
-         coverUrl: `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg?default=false` || info.imageLinks?.thumbnail,
+         coverUrl: `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
             edition: {
               title: info.title || 'Untitled Book',
               language: 'English',
