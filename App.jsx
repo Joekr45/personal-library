@@ -328,13 +328,11 @@ try {
               published: info.publishedDate || 'Catalog Print',
               publisher: info.publisher || 'Publisher'
             }
-          });
-          return;
-        }
-      }
-      }
+         });
+      return;
     }
-
+  }
+}
     // 2. Open Library fallback (with full author names)
    const bibkey = cleanIsbn.length === 12 ? `UPC:${cleanIsbn}` : `ISBN:${cleanIsbn}`;
   const olRes = await fetch(`https://openlibrary.org/api/books?bibkeys=${bibkey}&format=json&jscmd=data`).catch(() => null);
