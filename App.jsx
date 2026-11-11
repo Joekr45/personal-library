@@ -446,7 +446,7 @@ try {
     try {
       const cleanQ = encodeURIComponent(query);
       // 1. Search Open Library by author specific field with a higher capacity
-    const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&language=eng&limit=100`, {
+    const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&language=eng&limit=1000`, {
         mode: 'cors'
       }).catch(() => null);
 
