@@ -32,11 +32,14 @@ import {
   EyeOff,
   ExternalLink,
   Pencil,
-  Menu
+  Menu,
+  ImagePlus
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
 import ScannerModal from './src/ScannerModal.jsx';
+import { LANGUAGES } from './src/languages.js';
+import CoverPicker from './src/CoverPicker.jsx';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -143,6 +146,20 @@ export default function App() {
     }
   };
 
+  // Save a cover on the server for a book: choice is { url } or { imageData } (a photo).
+  const saveCoverFor = async (bookId, choice, { quiet = false } = {}) => {
+    try {
+      const saved = await api.saveCover(bookId, choice);
+      setBooks(prev => prev.map(b => (b.id === bookId ? saved : b)));
+      setSelectedBook(prev => (prev && prev.id === bookId ? saved : prev));
+      return saved;
+    } catch (err) {
+      if (err.status === 401) handleApiError(err);
+      else if (!quiet) setSaveError(`Could not save that cover: ${err.message}`);
+      return null;
+    }
+  };
+
   const removeBook = async (bookId) => {
     const before = books;
     setBooks(prev => prev.filter(b => b.id !== bookId));
@@ -183,6 +200,13 @@ export default function App() {
   const [manualFormat, setManualFormat] = useState('Hardcover');
   const [manualShelf, setManualShelf] = useState('Living Room Shelf');
   const [manualOwned, setManualOwned] = useState(true);
+  const [manualLanguage, setManualLanguage] = useState('English');
+  const [manualCover, setManualCover] = useState(null); // { url } or { imageData }
+  const [isManualCoverPickerOpen, setIsManualCoverPickerOpen] = useState(false);
+
+  // Book detail: choosing a new cover
+  const [isDetailCoverPickerOpen, setIsDetailCoverPickerOpen] = useState(false);
+  const [isSavingDetailCover, setIsSavingDetailCover] = useState(false);
 
   // Edit Book Details modal
   const [editingBook, setEditingBook] = useState(null);
@@ -499,6 +523,8 @@ export default function App() {
     setManualSeries('');
     setManualSeriesNum('');
     setManualOwned(true);
+    setManualLanguage('English');
+    setManualCover(null);
     setIsManualAddOpen(true);
   };
 
@@ -508,7 +534,7 @@ export default function App() {
 
     const typedIsbn = manualIsbn.trim().replace(/[^0-9X]/gi, '');
     const cleanIsbn = toIsbn13(typedIsbn) || typedIsbn || 'Pending Scan';
-    const cover = cleanIsbn !== 'Pending Scan' ? `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg` : null;
+    const cover = manualCover?.url || (manualCover ? null : cleanIsbn !== 'Pending Scan' ? `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg` : null);
 
     const newBook = {
       workTitle: manualTitle.trim(),
@@ -523,7 +549,7 @@ export default function App() {
       editions: [{
         id: `ed-${Date.now()}`,
         title: manualTitle.trim(),
-        language: 'English',
+        language: manualLanguage,
         format: manualFormat,
         isbn: cleanIsbn,
         published: 'Physical Edition',
@@ -531,7 +557,11 @@ export default function App() {
       }]
     };
 
-    addBook(newBook);
+    const chosenCover = manualCover;
+    addBook(newBook).then(saved => {
+      if (saved && chosenCover) saveCoverFor(saved.id, chosenCover.imageData ? { imageData: chosenCover.imageData } : { url: chosenCover.url });
+    });
+    setManualCover(null);
     setManualTitle('');
     setManualAuthor('');
     setManualSeries('');
@@ -1438,10 +1468,23 @@ export default function App() {
             <div className="p-4 sm:p-6 overflow-y-auto space-y-6">
               <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-center sm:items-start">
                 <div className="w-32 sm:w-40 flex-shrink-0">
-                  <AppleBookCover
-                    book={selectedBook}
-                    height="h-56"
-                  />
+                  <div className="relative">
+                    <AppleBookCover
+                      book={selectedBook}
+                      height="h-48 sm:h-56"
+                    />
+                    {isSavingDetailCover && (
+                      <div className="absolute inset-0 rounded-2xl bg-white/70 flex items-center justify-center z-20">
+                        <RefreshCw className="w-5 h-5 text-orange-500 animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setIsDetailCoverPickerOpen(true)}
+                    className="mt-2 w-full py-1.5 text-[11px] font-semibold text-orange-600 hover:bg-orange-50 rounded-lg flex items-center justify-center gap-1"
+                  >
+                    <ImagePlus className="w-3.5 h-3.5" /> Change cover
+                  </button>
                 </div>
 
                 <div className="flex-1 w-full space-y-3">
@@ -1702,6 +1745,34 @@ export default function App() {
                 />
               </div>}
 
+              <div className="grid grid-cols-2 gap-3 items-end">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-500 uppercase block mb-1">Language of my copy</label>
+                  <select
+                    value={manualLanguage}
+                    onChange={(e) => setManualLanguage(e.target.value)}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-orange-500 bg-white"
+                  >
+                    {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  {manualCover && (
+                    <img src={manualCover.url || manualCover.imageData} alt="" className="w-8 h-12 object-cover rounded border border-slate-200" />
+                  )}
+                  <button
+                    type="button"
+                    disabled={!manualTitle.trim()}
+                    onClick={() => setIsManualCoverPickerOpen(true)}
+                    className="flex-1 py-2 text-xs font-semibold border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-40 flex items-center justify-center gap-1.5"
+                    title={manualTitle.trim() ? '' : 'Enter a title first'}
+                  >
+                    <ImagePlus className="w-3.5 h-3.5 text-orange-500" />
+                    {manualCover ? 'Change cover' : 'Choose cover'}
+                  </button>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-xl shadow-xs transition-all mt-4"
@@ -1711,6 +1782,39 @@ export default function App() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* COVER PICKERS */}
+      {isManualCoverPickerOpen && (
+        <CoverPicker
+          title={manualTitle.trim()}
+          author={manualAuthor.trim()}
+          isbn={toIsbn13(manualIsbn) || ''}
+          language={manualLanguage}
+          onCancel={() => setIsManualCoverPickerOpen(false)}
+          onChoose={(choice) => {
+            setManualCover(choice);
+            setIsManualCoverPickerOpen(false);
+            // If no ISBN was typed, use the ISBN of the edition whose cover was picked.
+            if (!manualIsbn.trim() && choice.option?.isbn13) setManualIsbn(choice.option.isbn13);
+          }}
+        />
+      )}
+      {isDetailCoverPickerOpen && selectedBook && (
+        <CoverPicker
+          title={selectedBook.workTitle}
+          author={(selectedBook.author || '').split(',')[0]}
+          isbn={toIsbn13(selectedBook.editions?.[0]?.isbn) || ''}
+          workKey={selectedBook.workKey || ''}
+          language={selectedBook.editions?.[0]?.language || 'English'}
+          onCancel={() => setIsDetailCoverPickerOpen(false)}
+          onChoose={async (choice) => {
+            setIsDetailCoverPickerOpen(false);
+            setIsSavingDetailCover(true);
+            await saveCoverFor(selectedBook.id, choice.imageData ? { imageData: choice.imageData } : { url: choice.url });
+            setIsSavingDetailCover(false);
+          }}
+        />
       )}
 
       {/* MODAL: EDIT BOOK DETAILS */}
@@ -1758,6 +1862,7 @@ export default function App() {
           coverThemes={COVER_THEMES}
           onClose={() => setIsScanModalOpen(false)}
           onAdd={addBook}
+          onSaveCover={saveCoverFor}
           onManualAdd={openManualAdd}
         />
       )}
@@ -1772,13 +1877,19 @@ function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
   const coverUrl = book.customCoverUrl || (book.editions?.[0]?.isbn && book.editions[0].isbn !== 'Pending Scan' ? `https://covers.openlibrary.org/b/isbn/${book.editions[0].isbn}-M.jpg` : null);
   const theme = book.theme || COVER_THEMES[0];
 
+  // Start fresh when the cover changes (e.g. after choosing a new one)
+  useEffect(() => {
+    setImageLoaded(false);
+    setImageError(false);
+  }, [coverUrl]);
+
   return (
     <div className={`relative w-full ${height} rounded-2xl overflow-hidden shadow-md group-hover:shadow-xl border border-black/10 bg-slate-900 transition-all duration-300 flex flex-col justify-between`}>
       {coverUrl && !imageError && (
         <img
           src={coverUrl}
           alt={book.workTitle}
-          onLoad={() => setImageLoaded(true)}
+          onLoad={(e) => (e.currentTarget.naturalWidth < 10 ? setImageError(true) : setImageLoaded(true))}
           onError={() => setImageError(true)}
           className={`absolute inset-0 w-full h-full object-cover z-0 transition-opacity duration-300 ${
             imageLoaded ? 'opacity-100' : 'opacity-0'

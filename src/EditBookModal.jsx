@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Pencil, X, Save, RefreshCw } from 'lucide-react';
+import { LANGUAGES } from './languages.js';
 
 const FORMATS = ['Hardcover', 'Paperback', 'Mass Market Paperback', 'Special Collector Edition', 'Physical Print'];
 
@@ -14,6 +15,8 @@ export default function EditBookModal({ book, onCancel, onSave }) {
   );
   const [shelf, setShelf] = useState(book.shelfLocation || '');
   const [format, setFormat] = useState(firstEdition.format || 'Paperback');
+  const [language, setLanguage] = useState(firstEdition.language || 'English');
+  const languages = LANGUAGES.includes(language) ? LANGUAGES : [language, ...LANGUAGES];
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,7 +35,7 @@ export default function EditBookModal({ book, onCancel, onSave }) {
     }
     const editions = [...(book.editions || [])];
     if (editions.length > 0) {
-      editions[0] = { ...editions[0], format, title: editions[0].title === book.workTitle ? title.trim() : editions[0].title };
+      editions[0] = { ...editions[0], format, language, title: editions[0].title === book.workTitle ? title.trim() : editions[0].title };
     }
     setError('');
     setIsSaving(true);
@@ -99,6 +102,13 @@ export default function EditBookModal({ book, onCancel, onSave }) {
               <label className={labelClass} htmlFor="edit-shelf">Shelf Location</label>
               <input id="edit-shelf" type="text" value={shelf} onChange={(e) => setShelf(e.target.value)} placeholder="e.g. Study" className={inputClass} />
             </div>
+          </div>
+
+          <div>
+            <label className={labelClass} htmlFor="edit-language">Language of my copy</label>
+            <select id="edit-language" value={language} onChange={(e) => setLanguage(e.target.value)} className={`${inputClass} bg-white`}>
+              {languages.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
           </div>
 
           {error && <p className="text-xs text-red-600">{error}</p>}

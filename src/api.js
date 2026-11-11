@@ -45,3 +45,12 @@ export const api = {
 api.lookupCode = (code) => request('GET', `/api/lookup/isbn/${encodeURIComponent(code)}`);
 api.searchCatalog = (title, author) =>
   request('GET', `/api/lookup/search?${new URLSearchParams({ title: title || '', author: author || '' })}`).then(d => d.results);
+
+// Covers
+api.getCoverOptions = ({ isbn, workKey, title, author, language }) =>
+  request('GET', `/api/lookup/covers?${new URLSearchParams({
+    isbn: isbn || '', workKey: workKey || '', title: title || '', author: author || '', language: language || ''
+  })}`);
+// choice: { url } to save a picture from the web, or { imageData } for a photo from the phone
+api.saveCover = (bookId, choice) =>
+  request('POST', `/api/books/${encodeURIComponent(bookId)}/cover`, choice).then(d => d.book);

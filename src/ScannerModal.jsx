@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ScanBarcode, X, RefreshCw, AlertTriangle, CheckCircle2, Search, Keyboard, Heart, Library, BookOpen, Info
+  ScanBarcode, X, RefreshCw, AlertTriangle, CheckCircle2, Search, Keyboard, Heart, Library, BookOpen, Info, ImagePlus, ArrowLeft
 } from 'lucide-react';
 import { api } from './api.js';
+import CoverPicker from './CoverPicker.jsx';
+import { LANGUAGES } from './languages.js';
 import { classifyCode, toIsbn13 } from '../shared/isbn.js';
 
 // Same idea as the server's normalizeTitle: used to spot books already in the library.
@@ -58,7 +60,7 @@ const TABS = [
 ];
 
 // The "Add a book" window: scan a barcode, type an ISBN, or search by title/author.
-export default function ScannerModal({ books, onClose, onAdd, onManualAdd, coverThemes }) {
+export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onManualAdd, coverThemes }) {
   const [mode, setMode] = useState('camera');
 
   // camera
@@ -75,9 +77,11 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
   const [isbnInput, setIsbnInput] = useState('');
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [notice, setNotice] = useState(null); // { type: 'upc'|'invalid'|'notfound'|'duplicate'|'error', ... }
-  const [result, setResult] = useState(null);
-  const [chosenCover, setChosenCover] = useState(null);
-  const [brokenCovers, setBrokenCovers] = useState([]);
+  const [result, setResult] = useState(null); // the book about to be added (from a scan, ISBN or title search)
+  const [coverChoice, setCoverChoice] = useState(null); // { url } or { imageData }
+  const [coverBroken, setCoverBroken] = useState(false);
+  const [copyLanguage, setCopyLanguage] = useState('English');
+  const [isPickingCover, setIsPickingCover] = useState(false);
   const [lastAdded, setLastAdded] = useState(null);
 
   // title search
@@ -86,7 +90,6 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState(null);
   const [searchError, setSearchError] = useState('');
-  const [addedFromSearch, setAddedFromSearch] = useState({});
 
   const booksRef = useRef(books);
   booksRef.current = books;
@@ -176,8 +179,16 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
   const resetResult = () => {
     setNotice(null);
     setResult(null);
-    setChosenCover(null);
-    setBrokenCovers([]);
+    setCoverChoice(null);
+    setCoverBroken(false);
+    setIsPickingCover(false);
+  };
+
+  const showResult = (book) => {
+    setResult(book);
+    setCoverChoice(book.covers?.[0] ? { url: book.covers[0].url } : null);
+    setCoverBroken(false);
+    setCopyLanguage(LANGUAGES.includes(book.language) ? book.language : 'English');
   };
 
   const scanAgain = () => {
@@ -208,8 +219,7 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
       if (!data.found) {
         setNotice({ type: 'notfound', isbn: code.isbn13 });
       } else {
-        setResult(data.book);
-        setChosenCover(data.book.covers?.[0]?.url || null);
+        showResult(data.book);
       }
     } catch (err) {
       setNotice({ type: 'error', message: err.message });
@@ -218,11 +228,38 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
     }
   };
 
-  const goodCovers = (result?.covers || []).filter(c => !brokenCovers.includes(c.url));
+  // If the suggested cover doesn't load, quietly try the next one from the catalogs.
+  const failedCoversRef = useRef(new Set());
+  const onCoverError = () => {
+    if (coverChoice?.url) failedCoversRef.current.add(coverChoice.url);
+    const next = !coverChoice?.picked && (result?.covers || []).find(c => !failedCoversRef.current.has(c.url));
+    if (next) setCoverChoice({ url: next.url });
+    else setCoverBroken(true);
+  };
+
+  const handleCoverPicked = (choice) => {
+    setIsPickingCover(false);
+    setCoverBroken(false);
+    setCoverChoice({ ...choice, picked: true });
+    // When the book came from a title search we don't know its exact edition yet:
+    // picking an edition's cover also tells us that edition's ISBN, year and publisher.
+    const option = choice.option;
+    // (A scanned or typed ISBN is never replaced — that is the copy in your hands.)
+    if (option && result && (result.fromSearch || !result.isbn13) && option.isbn13) {
+      setResult(prev => ({
+        ...prev,
+        isbn13: option.isbn13,
+        publisher: option.publisher || prev.publisher,
+        publishedDate: option.year || prev.publishedDate,
+        format: option.format || prev.format,
+        editionFromCover: true
+      }));
+    }
+    if (option?.language && result && (result.fromSearch || !result.isbn13) && LANGUAGES.includes(option.language)) setCopyLanguage(option.language);
+  };
 
   const addResult = async (owned) => {
     if (!result) return;
-    const cover = goodCovers.find(c => c.url === chosenCover)?.url || goodCovers[0]?.url || null;
     const book = {
       workTitle: result.title,
       author: result.authors?.length ? result.authors.join(', ') : 'Unknown Author',
@@ -231,16 +268,16 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
       owned,
       readingStatus: 'Unread',
       shelfLocation: owned ? 'Living Room Shelf' : '',
-      customCoverUrl: cover,
+      customCoverUrl: coverChoice?.url || null,
       description: result.description || null,
       workKey: result.workKey || null,
       theme: coverThemes[Math.floor(Math.random() * coverThemes.length)],
       editions: [{
         id: `ed-${Date.now()}`,
         title: result.title,
-        language: result.language || 'English',
+        language: copyLanguage,
         format: result.format || 'Physical Print',
-        isbn: result.isbn13,
+        isbn: result.isbn13 || 'Pending Scan',
         isbn10: result.isbn10 || null,
         published: result.publishedDate || 'Unknown',
         publisher: result.publisher || 'Unknown',
@@ -249,6 +286,8 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
     };
     const saved = await onAdd(book);
     if (saved) {
+      // Keep a copy of the chosen cover on the server (in the background).
+      if (coverChoice) onSaveCover(saved.id, coverChoice.imageData ? { imageData: coverChoice.imageData } : { url: coverChoice.url }, { quiet: true });
       setLastAdded({ title: book.workTitle, owned });
       setIsbnInput('');
       resetResult();
@@ -279,30 +318,24 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
       String(b.author || '').toLowerCase().includes(String(r.authors?.[0] || '').toLowerCase().split(' ').pop()))
   );
 
-  const addSearchResult = async (r, index, owned) => {
-    const book = {
-      workTitle: r.title,
-      author: r.authors?.length ? r.authors.join(', ') : 'Unknown Author',
-      series: null,
-      seriesNumber: null,
-      owned,
-      readingStatus: 'Unread',
-      shelfLocation: owned ? 'Living Room Shelf' : '',
-      customCoverUrl: r.cover ? r.cover.replace(/-M\.jpg$/, '-L.jpg') : null,
-      workKey: r.workKey || null,
-      theme: coverThemes[Math.floor(Math.random() * coverThemes.length)],
-      editions: [{
-        id: `ed-${Date.now()}`,
-        title: r.title,
-        language: r.language || 'English',
-        format: 'Physical Print',
-        isbn: r.isbn13 || 'Pending Scan',
-        published: r.year || 'Unknown',
-        publisher: r.publisher || 'Unknown'
-      }]
-    };
-    const saved = await onAdd(book);
-    if (saved) setAddedFromSearch(prev => ({ ...prev, [index]: owned ? 'shelf' : 'wishlist' }));
+  // Picking a search result shows the same confirmation card as a scan, with cover and language choice.
+  const selectSearchResult = (r) => {
+    setLastAdded(null);
+    showResult({
+      title: r.title,
+      subtitle: r.subtitle,
+      authors: r.authors,
+      publisher: r.publisher,
+      publishedDate: r.year,
+      language: r.language || 'English',
+      isbn13: r.isbn13 || null,
+      isbn10: null,
+      format: null,
+      workKey: r.workKey,
+      sources: r.sources,
+      fromSearch: true,
+      covers: r.cover ? [{ url: r.cover.replace(/-M\.jpg$/, '-L.jpg'), source: r.sources?.[0] }] : []
+    });
   };
 
   const switchMode = (next) => {
@@ -478,47 +511,51 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
 
           {result && (
             <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3">
+              {mode === 'search' && (
+                <button onClick={resetResult} className="text-xs font-semibold text-slate-600 flex items-center gap-1">
+                  <ArrowLeft className="w-3.5 h-3.5" /> Back to results
+                </button>
+              )}
               <div className="flex gap-4 items-start">
-                <div className="w-20 h-28 bg-white rounded-lg border border-emerald-200 overflow-hidden shrink-0 flex items-center justify-center">
-                  {chosenCover && !brokenCovers.includes(chosenCover)
-                    ? <img src={chosenCover} alt="" className="w-full h-full object-cover" onError={() => setBrokenCovers(p => [...p, chosenCover])} />
-                    : <BookOpen className="w-6 h-6 text-slate-300" />}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPickingCover(true)}
+                  className="w-24 flex-shrink-0 group"
+                  title="Choose a different cover"
+                >
+                  <div className="w-24 h-36 bg-white rounded-lg border border-emerald-200 overflow-hidden flex items-center justify-center">
+                    {coverChoice && !coverBroken
+                      ? <img src={coverChoice.url || coverChoice.imageData} alt="" className="w-full h-full object-cover" onError={onCoverError} onLoad={(e) => { if (e.currentTarget.naturalWidth < 10) onCoverError(); }} />
+                      : <BookOpen className="w-6 h-6 text-slate-300" />}
+                  </div>
+                  <span className="mt-1 text-[11px] font-semibold text-orange-600 flex items-center justify-center gap-1">
+                    <ImagePlus className="w-3.5 h-3.5" /> Change cover
+                  </span>
+                </button>
                 <div className="text-xs min-w-0 flex-1 space-y-1">
                   <div className="font-bold text-slate-900 text-sm">{result.title}</div>
                   {result.subtitle && <div className="text-slate-600">{result.subtitle}</div>}
                   <div className="text-slate-700">by {result.authors?.join(', ') || 'Unknown author'}</div>
                   <div className="text-[11px] text-slate-500">
-                    {[result.publisher, result.publishedDate, result.format, result.language !== 'English' ? result.language : null].filter(Boolean).join(' • ')}
+                    {[result.publisher, result.publishedDate, result.format].filter(Boolean).join(' • ')}
                   </div>
-                  <div className="text-[10px] text-slate-400">ISBN {result.isbn13} · found in {result.sources?.join(' & ')}</div>
+                  {result.isbn13 && (
+                    <div className="text-[10px] text-slate-400">
+                      ISBN {result.isbn13}{result.editionFromCover ? ' (from the cover you picked)' : ''}{result.sources?.length ? ` · found in ${result.sources.join(' & ')}` : ''}
+                    </div>
+                  )}
+                  <label className="block pt-1.5">
+                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Language of my copy</span>
+                    <select
+                      value={copyLanguage}
+                      onChange={(e) => setCopyLanguage(e.target.value)}
+                      className="mt-0.5 block w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white"
+                    >
+                      {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </label>
                 </div>
               </div>
-
-              {goodCovers.length > 1 && (
-                <div>
-                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Choose a cover</span>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {goodCovers.map((c) => (
-                      <button
-                        key={c.url}
-                        type="button"
-                        title={c.source}
-                        onClick={() => setChosenCover(c.url)}
-                        className={`shrink-0 w-11 h-16 rounded-md overflow-hidden border-2 bg-white ${chosenCover === c.url ? 'border-emerald-600' : 'border-slate-200 opacity-70'}`}
-                      >
-                        <img
-                          src={c.url}
-                          alt=""
-                          className="w-full h-full object-cover"
-                          onError={() => setBrokenCovers(p => [...p, c.url])}
-                          onLoad={(e) => { if (e.currentTarget.naturalWidth < 10) setBrokenCovers(p => [...p, c.url]); }}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => addResult(true)} className={`${btn} bg-emerald-600 hover:bg-emerald-700 text-white`}>
@@ -536,8 +573,20 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
             </div>
           )}
 
+          {isPickingCover && result && (
+            <CoverPicker
+              title={result.title}
+              author={result.authors?.[0] || ''}
+              isbn={result.fromSearch ? '' : result.isbn13}
+              workKey={result.workKey}
+              language={copyLanguage}
+              onCancel={() => setIsPickingCover(false)}
+              onChoose={handleCoverPicked}
+            />
+          )}
+
           {/* --- Find by title --- */}
-          {mode === 'search' && (
+          {mode === 'search' && !result && (
             <div className="space-y-3">
               <form onSubmit={runSearch} className="space-y-2">
                 <input
@@ -570,7 +619,6 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
                 <ul className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden">
                   {searchResults.map((r, i) => {
                     const inLibrary = findInLibrary(r);
-                    const added = addedFromSearch[i];
                     return (
                       <li key={`${r.title}-${i}`} className="p-3 flex gap-3 items-start bg-white">
                         <div className="w-12 h-[4.5rem] bg-slate-100 rounded-md overflow-hidden shrink-0 flex items-center justify-center">
@@ -583,23 +631,14 @@ export default function ScannerModal({ books, onClose, onAdd, onManualAdd, cover
                             {[r.year, r.publisher, r.language && r.language !== 'English' ? r.language : null].filter(Boolean).join(' • ')}
                           </div>
                           <div className="pt-1.5 flex gap-1.5 flex-wrap">
-                            {added ? (
-                              <span className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Added to {added === 'shelf' ? 'shelf' : 'wishlist'}
-                              </span>
-                            ) : inLibrary ? (
+                            {inLibrary ? (
                               <span className="text-[11px] font-semibold text-slate-500">
                                 Already {inLibrary.owned === false ? 'on your wishlist' : 'on your shelf'}
                               </span>
                             ) : (
-                              <>
-                                <button onClick={() => addSearchResult(r, i, true)} className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-lg">
-                                  + My Shelf
-                                </button>
-                                <button onClick={() => addSearchResult(r, i, false)} className="px-2.5 py-1.5 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-semibold rounded-lg">
-                                  + Wishlist
-                                </button>
-                              </>
+                              <button onClick={() => selectSearchResult(r)} className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-semibold rounded-lg">
+                                Choose
+                              </button>
                             )}
                           </div>
                         </div>

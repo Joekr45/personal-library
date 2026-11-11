@@ -25,6 +25,12 @@ Lookups are done by the server, which asks **Open Library** and **Google Books**
 
 Older mass-market paperbacks often have a 12-digit **store barcode (UPC)** on the back instead of the ISBN barcode. The app recognises these and explains where to find the real ISBN.
 
+## Covers
+
+Whenever a book is added (scan, ISBN, title search or typed in) you can **Change cover**: the app shows every cover it can find for that book, labelled by edition (language, year, publisher), with **This edition** first. You can also use a **photo of your own copy** or **paste a link** to a picture. Every book's page has a **Change cover** button too.
+
+The chosen cover is downloaded and **saved on the server** (`DATA_DIR/covers`), so it never disappears or changes. Only the book's owner can see its saved cover.
+
 Camera scanning needs a browser that allows camera access (on phones this usually means an `https://` address) and uses the browser's built-in barcode reader where available (Android/Chrome), falling back to ZXing elsewhere.
 
 ## How updates reach the server
