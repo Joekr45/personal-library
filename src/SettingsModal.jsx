@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Settings, CheckCircle2, RefreshCw, ExternalLink, AlertTriangle, Download, KeyRound, Users, Database,
-  Smartphone, Trash2, Lock
+  Smartphone, Trash2, Lock, Upload
 } from 'lucide-react';
 import { api } from './api.js';
 
@@ -285,7 +285,7 @@ function SharingToggle({ onChange }) {
   );
 }
 
-export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange }) {
+export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange, onImport }) {
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4">
       <div className="bg-white sm:rounded-3xl shadow-2xl max-w-lg w-full flex flex-col h-full sm:h-auto sm:max-h-[92vh] overflow-hidden">
@@ -301,8 +301,9 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
 
         <div className="p-5 space-y-5 overflow-y-auto text-xs text-slate-700">
           <Section icon={Download} title="My books">
-            <p className="text-slate-500">Download all your books as a spreadsheet (opens in Excel, Google Sheets or Numbers).</p>
+            <p className="text-slate-500">Download all your books as a spreadsheet (opens in Excel, Google Sheets or Numbers), or bring in your books from Goodreads.</p>
             <a href="/api/export/books.csv" className={buttonClass}><Download className="w-3.5 h-3.5" /> Download my books (spreadsheet)</a>
+            <button onClick={onImport} className={buttonClass}><Upload className="w-3.5 h-3.5" /> Import from Goodreads</button>
             <SharingToggle onChange={onFamilyChange} />
           </Section>
           <InstallSection />

@@ -399,6 +399,96 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       return { status: 201, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(id)) } };
     },
 
+    // Add many books at once (Goodreads import). Invalid entries are skipped and counted.
+    'POST /api/books/bulk': async (req) => {
+      const user = requireUser(req);
+      const list = (await readJson(req)).books;
+      if (!Array.isArray(list) || list.length === 0) throw new HttpError(400, 'No books to add.');
+      if (list.length > 5000) throw new HttpError(400, 'Please import at most 5,000 books at a time.');
+      const insert = db.prepare('INSERT INTO books (id, user_id, data) VALUES (?, ?, ?)');
+      const ids = [];
+      let skipped = 0;
+      db.exec('BEGIN');
+      try {
+        for (const raw of list) {
+          try {
+            const body = { ...raw };
+            delete body.coverFile;
+            const data = validateBook(body);
+            const id = crypto.randomUUID();
+            insert.run(id, user.id, JSON.stringify(data));
+            ids.push(id);
+          } catch (err) {
+            if (!(err instanceof HttpError)) throw err;
+            skipped++;
+          }
+        }
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+      const get = db.prepare('SELECT id, data, created_at FROM books WHERE id = ?');
+      return { status: 201, body: { added: ids.length, skipped, books: ids.map(id => bookFromRow(get.get(id))) } };
+    },
+
+    // New and upcoming books from the authors and series in your library.
+    'GET /api/new-releases': async (req) => {
+      const user = requireUser(req);
+      const mine = db.prepare('SELECT data FROM books WHERE user_id = ?').all(user.id).map(r => JSON.parse(r.data));
+      const have = new Set(mine.map(b => lookup.mainTitleKey(b.workTitle)));
+      const dismissed = new Set(JSON.parse(getSetting(`dismissed:${user.id}`) || '[]'));
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - 12);
+      const cutoffText = cutoff.toISOString().slice(0, 10);
+
+      // Your 15 most-collected authors (first-listed author of each book)
+      const counts = new Map();
+      for (const b of mine) {
+        const name = String(b.author || '').split(',')[0].trim();
+        if (name && name !== 'Unknown Author') counts.set(name, (counts.get(name) || 0) + 1);
+      }
+      const authors = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name]) => name);
+
+      const found = new Map();
+      for (const name of authors) {
+        for (const r of await lookup.recentByAuthor(name)) {
+          if (!r.date || r.date < cutoffText || have.has(r.titleKey) || dismissed.has(r.id)) continue;
+          if (!found.has(r.titleKey)) found.set(r.titleKey, { ...r, reason: `New from ${name}` });
+        }
+      }
+
+      // Newest books in series you collect (needs Hardcover)
+      if (getSetting('hardcover_token')) {
+        const seriesIds = [...new Set(mine.map(b => b.hardcoverSeriesId).filter(Boolean))].slice(0, 20);
+        for (const id of seriesIds) {
+          let series = null;
+          try { series = await hardcover.seriesBooks(id); } catch { continue; }
+          for (const b of series?.books || []) {
+            const key = lookup.mainTitleKey(b.title);
+            const hcId = `hc-${b.hardcoverId}`;
+            if (!b.year || Number(b.year) < cutoff.getFullYear() || have.has(key) || dismissed.has(hcId)) continue;
+            const existing = found.get(key);
+            if (existing) existing.reason = `${series.name} #${b.position}`;
+            else found.set(key, { id: hcId, title: b.title, author: mine.find(m => m.hardcoverSeriesId === id)?.author || '', date: b.year, cover: b.cover, isbn13: null, reason: `${series.name} #${b.position}`, series: series.name, seriesNumber: b.position, hardcoverSeriesId: id });
+          }
+        }
+      }
+
+      const releases = [...found.values()].map(({ titleKey, ...r }) => r).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      return { status: 200, body: { releases, authorsChecked: authors.length } };
+    },
+
+    'POST /api/new-releases/dismiss': async (req) => {
+      const user = requireUser(req);
+      const id = cleanText((await readJson(req)).id, 100);
+      if (!id) throw new HttpError(400, 'Which book?');
+      const list = JSON.parse(getSetting(`dismissed:${user.id}`) || '[]').filter(x => x !== id);
+      list.push(id);
+      setSetting(`dismissed:${user.id}`, JSON.stringify(list.slice(-1000)));
+      return { status: 200, body: { ok: true } };
+    },
+
     // Family sharing
     'GET /api/me/sharing': (req) => {
       const user = requireUser(req);

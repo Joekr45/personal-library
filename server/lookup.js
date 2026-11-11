@@ -555,5 +555,33 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
     };
   });
 
-  return { lookupIsbn, searchBooks, getCoverOptions, searchAuthors, authorWorks };
+  // ---------- new releases ----------
+  // Recent and upcoming English books by an author (from Google Books, which has new releases first).
+  const recentByAuthor = (name) => cached(`recent:${name.toLowerCase()}`, async () => {
+    const data = await getJson(googleUrl(`inauthor:"${name}"`, '&maxResults=20&orderBy=newest&printType=books&langRestrict=en'));
+    const surname = (n) => String(n || '').toLowerCase().split(/\s+/).pop();
+    const first = name.toLowerCase().split(/\s+/)[0];
+    const seen = new Set();
+    const result = [];
+    for (const item of data?.items || []) {
+      const v = item.volumeInfo || {};
+      if (!(v.authors || []).some(a => surname(a) === surname(name) && a.toLowerCase().includes(first))) continue;
+      if (v.language !== 'en' || !looksEnglish(v.title) || JUNK_TITLE.test(v.title)) continue;
+      const key = mainTitleKey(v.title);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        id: `g-${item.id}`,
+        title: v.title,
+        author: name,
+        date: v.publishedDate || null,
+        cover: googleCover(v.imageLinks),
+        isbn13: (v.industryIdentifiers || []).find(i => i.type === 'ISBN_13')?.identifier || null,
+        titleKey: key
+      });
+    }
+    return result;
+  });
+
+  return { lookupIsbn, searchBooks, getCoverOptions, searchAuthors, authorWorks, recentByAuthor, mainTitleKey };
 }

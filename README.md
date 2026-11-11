@@ -26,6 +26,11 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **Lending** (book page): lend a book to someone, mark it returned, keep the history; **Lent Out** in the menu lists what's out.
 - **Family Shelves**: each person can turn on **Share my library with the family** in Settings. Others can then browse the books on their shelves (not notes or wishlists), and see "Also on Mom's shelf" on book pages and in Own it?.
 
+## Discovery & import
+
+- **New for You** (menu): new and upcoming English books from your 15 most-collected authors (Google Books) and from series you collect (Hardcover), leaving out books you already have. Add to wishlist or mark "Not interested" (remembered).
+- **Import from Goodreads** (Settings → My books): choose your Goodreads export file; read books come in as finished with ratings, reviews and dates, "currently reading" as Reading, and "want to read" as wishlist (or on your shelf, or skipped). Series are taken from Goodreads titles; books you already have are skipped.
+
 ## Settings
 
 - **My books:** download your books as a spreadsheet (CSV, Goodreads-style columns).
