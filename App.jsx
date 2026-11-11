@@ -604,16 +604,17 @@ try {
           return yearB - yearA;
         });
 
+       if (foundBooks.length > 0) {
         setViewingGlobalAuthor({
           name: resolvedDisplayName,
           bio: `Catalog bibliography for ${resolvedDisplayName}. (${foundBooks.filter(b => b.isOwned).length} of ${foundBooks.length} owned)`,
           books: foundBooks
-        });
-      return;
+       });
     } else {
       setAuthorSearchError(`No catalog records found matching "${query}". Check spelling or try a different name.`);
     }
-  } catch (err) {
+  }
+} catch (err) {
       console.warn('Author query fallback active:', err);
       setAuthorSearchError('Connection timeout or rate limit from catalog.');
     } finally {
