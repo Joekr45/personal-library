@@ -81,3 +81,8 @@ api.backupNow = () => request('POST', '/api/admin/backups').then(d => d.backups)
 // Reading goal
 api.getGoal = (year) => request('GET', `/api/me/goal?year=${encodeURIComponent(year)}`);
 api.setGoal = (year, goal) => request('PUT', '/api/me/goal', { year, goal });
+
+// Family sharing
+api.getSharing = () => request('GET', '/api/me/sharing').then(d => d.sharing);
+api.setSharing = (sharing) => request('PUT', '/api/me/sharing', { sharing }).then(d => d.sharing);
+api.family = () => request('GET', '/api/family');
