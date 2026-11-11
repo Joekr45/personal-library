@@ -1387,7 +1387,7 @@ export default function App() {
       )}
 
       {isSettingsOpen && settings && (
-        <SettingsModal settings={settings} onChange={setSettings} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal settings={settings} currentUser={currentUser} onChange={setSettings} onClose={() => setIsSettingsOpen(false)} />
       )}
 
       {/* COVER PICKERS */}

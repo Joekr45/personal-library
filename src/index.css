@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Very light shadows used across the app (not part of Tailwind 3 itself) */
+@layer utilities {
+  .shadow-2xs { box-shadow: 0 1px rgb(0 0 0 / 0.05); }
+  .shadow-xs { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }
+}
+
+/* Respect the phone's notch / rounded corners when opened from the home screen */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}

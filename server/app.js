@@ -8,6 +8,7 @@ import { openDatabase } from './db.js';
 import { createLookup } from './lookup.js';
 import { createCoverStore, CoverError, COVER_CONTENT_TYPES } from './covers.js';
 import { createHardcover, HardcoverError, cleanToken } from './hardcover.js';
+import { createBackups } from './backups.js';
 import { classifyCode } from '../shared/isbn.js';
 import {
   SESSION_COOKIE, hashPassword, verifyPassword, createSession, userForSession,
@@ -35,7 +36,8 @@ const MIME_TYPES = {
   '.webp': 'image/webp',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
-  '.txt': 'text/plain; charset=utf-8'
+  '.txt': 'text/plain; charset=utf-8',
+  '.webmanifest': 'application/manifest+json'
 };
 
 class HttpError extends Error {
@@ -45,7 +47,7 @@ class HttpError extends Error {
   }
 }
 
-export function createServer({ dataDir, distDir, allowRegistration = true, fetchImpl, googleApiKey, resolveHost }) {
+export function createServer({ dataDir, distDir, allowRegistration = true, fetchImpl, googleApiKey, resolveHost, startBackups = false }) {
   const db = openDatabase(dataDir);
   const lookup = createLookup({ fetchImpl, googleApiKey });
   const covers = createCoverStore({ dataDir, fetchImpl, resolveHost });
@@ -55,6 +57,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
   const setSetting = (key, value) => db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
   const deleteSetting = (key) => db.prepare('DELETE FROM settings WHERE key = ?').run(key);
   const hardcover = createHardcover({ getToken: () => getSetting('hardcover_token'), fetchImpl });
+  const backups = createBackups({ db, dataDir });
+  if (startBackups) backups.start();
+
+  // New sign-ups: the Owner's choice in Settings, otherwise the ALLOW_REGISTRATION setting.
+  const signupsOpen = () => {
+    const saved = getSetting('allow_registration');
+    return saved === null ? allowRegistration : saved === 'true';
+  };
 
   const requireOwner = (req) => {
     const user = requireUser(req);
@@ -158,7 +168,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
     'GET /api/auth/me': (req) => {
       const user = userForSession(db, getCookie(req, SESSION_COOKIE));
       const { count } = db.prepare('SELECT COUNT(*) AS count FROM users').get();
-      return { status: 200, body: { user, hasUsers: count > 0, allowRegistration } };
+      return { status: 200, body: { user, hasUsers: count > 0, allowRegistration: signupsOpen() } };
     },
 
     'POST /api/auth/register': async (req) => {
@@ -169,7 +179,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
 
       const { count } = db.prepare('SELECT COUNT(*) AS count FROM users').get();
       // The very first account can always be created; after that it depends on the setting.
-      if (count > 0 && !allowRegistration) throw new HttpError(403, 'New sign-ups are turned off.');
+      if (count > 0 && !signupsOpen()) throw new HttpError(403, 'New sign-ups are turned off. Ask the library owner to add you.');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, 'Please enter a valid email address.');
       if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters long.');
       if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
@@ -252,6 +262,49 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       const q = cleanText(new URL(req.url, 'http://localhost').searchParams.get('q') || '', 200);
       if (!q) throw new HttpError(400, 'Enter an author\'s name.');
       return { status: 200, body: { authors: await lookup.searchAuthors(q) } };
+    },
+
+    // Change your own password (signs out your other devices).
+    'PUT /api/auth/password': async (req) => {
+      const user = requireUser(req);
+      const body = await readJson(req);
+      const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);
+      if (!verifyPassword(String(body.currentPassword || ''), row.password_hash)) throw new HttpError(400, 'Your current password is not right.');
+      const next = String(body.newPassword || '');
+      if (next.length < 8) throw new HttpError(400, 'The new password must be at least 8 characters long.');
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(next), user.id);
+      const current = getCookie(req, SESSION_COOKIE);
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(user.id, crypto.createHash('sha256').update(current || '').digest('hex'));
+      return { status: 200, body: { ok: true } };
+    },
+
+    // ----- Owner tools -----
+    'GET /api/admin/users': (req) => {
+      requireOwner(req);
+      const users = db.prepare(`
+        SELECT u.id, u.email, u.display_name, u.role, u.color, u.created_at,
+               (SELECT COUNT(*) FROM books b WHERE b.user_id = u.id) AS book_count
+        FROM users u ORDER BY u.created_at
+      `).all().map(u => ({ ...publicUser(u), createdAt: u.created_at, bookCount: u.book_count }));
+      return { status: 200, body: { users, signupsOpen: signupsOpen() } };
+    },
+
+    'PUT /api/admin/signups': async (req) => {
+      requireOwner(req);
+      const open = (await readJson(req)).open === true;
+      setSetting('allow_registration', open ? 'true' : 'false');
+      return { status: 200, body: { signupsOpen: open } };
+    },
+
+    'GET /api/admin/backups': (req) => {
+      requireOwner(req);
+      return { status: 200, body: { backups: backups.list() } };
+    },
+
+    'POST /api/admin/backups': (req) => {
+      requireOwner(req);
+      backups.backupNow();
+      return { status: 200, body: { backups: backups.list() } };
     },
 
     // ----- Settings -----
@@ -354,6 +407,75 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       db.prepare('INSERT OR IGNORE INTO hidden_author_books (user_id, author_key, book_id) VALUES (?, ?, ?)').run(user.id, authorKey, bookId);
     }
     return { status: 200, body: { ok: true } };
+  };
+
+  // Owner: set a new password for someone (signs them out everywhere).
+  const resetUserPassword = async (req, userId) => {
+    requireOwner(req);
+    const password = String((await readJson(req)).password || '');
+    if (password.length < 8) throw new HttpError(400, 'The new password must be at least 8 characters long.');
+    const result = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
+    if (result.changes === 0) throw new HttpError(404, 'Account not found.');
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+    return { status: 200, body: { ok: true } };
+  };
+
+  // Owner: remove someone's account and all their books.
+  const removeUser = (req, userId) => {
+    const owner = requireOwner(req);
+    if (userId === owner.id) throw new HttpError(400, 'You can\'t remove your own account.');
+    const files = db.prepare('SELECT data FROM books WHERE user_id = ?').all(userId).map(r => JSON.parse(r.data).coverFile).filter(Boolean);
+    const result = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    if (result.changes === 0) throw new HttpError(404, 'Account not found.');
+    files.forEach(f => covers.remove(f));
+    return { status: 200, body: { ok: true } };
+  };
+
+  // Your books as a spreadsheet (CSV), with Goodreads-style column names.
+  const exportCsv = (req, res) => {
+    const user = requireUser(req);
+    const rows = db.prepare('SELECT data, created_at FROM books WHERE user_id = ? ORDER BY created_at').all(user.id);
+    const columns = ['Title', 'Author', 'Series', 'Series #', 'Shelf', 'Owned', 'Reading Status', 'ISBN13', 'Format', 'Language',
+      'Publisher', 'Year Published', 'My Rating', 'Date Read', 'Date Added', 'Notes'];
+    const cell = (v) => {
+      const text = v === null || v === undefined ? '' : String(v);
+      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+    const lines = [columns.join(',')];
+    for (const row of rows) {
+      const b = JSON.parse(row.data);
+      const e = (b.editions || [])[0] || {};
+      lines.push([
+        b.workTitle, b.author, b.series, b.seriesNumber, b.shelfLocation,
+        b.owned === false ? 'Wishlist' : 'Owned', b.readingStatus,
+        e.isbn && e.isbn !== 'Pending Scan' ? e.isbn : '', e.format, e.language, e.publisher,
+        (String(e.published || '').match(/\d{4}/) || [''])[0], b.rating, b.dateFinished, row.created_at.slice(0, 10), b.notes
+      ].map(cell).join(','));
+    }
+    const csv = '\ufeff' + lines.join('\r\n') + '\r\n'; // the mark at the start helps Excel read accents correctly
+    const date = new Date().toISOString().slice(0, 10);
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="my-books-${date}.csv"`,
+      'Cache-Control': 'no-store'
+    });
+    res.end(csv);
+  };
+
+  // Owner: download a complete copy of the database (everyone's books and accounts).
+  const downloadBackup = (req, res) => {
+    requireOwner(req);
+    const file = backups.freshCopy();
+    const date = new Date().toISOString().slice(0, 10);
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="personal-library-backup-${date}.db"`,
+      'Content-Length': fs.statSync(file).size,
+      'Cache-Control': 'no-store'
+    });
+    const stream = fs.createReadStream(file);
+    stream.pipe(res);
+    stream.on('close', () => fs.rmSync(file, { force: true }));
   };
 
   // All books in a series, in reading order: /api/series/<id>/books
@@ -480,9 +602,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
         const authorRoute = pathname.match(/^\/api\/authors\/(OL\d+A)\/(works|hidden)$/);
         const coverFile = pathname.match(/^\/api\/covers\/([0-9a-f-]{36}\.(?:jpg|png|webp|gif))$/);
         if (coverFile && req.method === 'GET') return serveCover(req, res, coverFile[1]);
+        if (pathname === '/api/export/books.csv' && req.method === 'GET') return exportCsv(req, res);
+        if (pathname === '/api/admin/backup/download' && req.method === 'GET') return downloadBackup(req, res);
+        const adminUser = pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})(\/password)?$/);
         let result;
         if (route) result = await route(req);
         else if (coverUpload && req.method === 'POST') result = await saveBookCover(req, coverUpload[1]);
+        else if (adminUser && adminUser[2] && req.method === 'POST') result = await resetUserPassword(req, adminUser[1]);
+        else if (adminUser && !adminUser[2] && req.method === 'DELETE') result = removeUser(req, adminUser[1]);
         else if (seriesRoute && req.method === 'GET') result = await seriesBooks(req, seriesRoute[1]);
         else if (authorRoute && authorRoute[2] === 'works' && req.method === 'GET') result = await authorWorks(req, authorRoute[1]);
         else if (authorRoute && authorRoute[2] === 'hidden' && req.method === 'PUT') result = await setAuthorBookHidden(req, authorRoute[1]);
