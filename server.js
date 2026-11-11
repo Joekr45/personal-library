@@ -55,7 +55,25 @@ app.post('/api/register', (req, res) => {
     res.status(500).json({ error: 'Failed to save user' });
   }
 });
-
+app.post('/api/login', (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Missing email or password' });
+    }
+    const data = fs.readFileSync(USERS_FILE, 'utf8');
+    const users = JSON.parse(data || '[]');
+    const user = users.find(
+      u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+    );
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    res.json({ success: true, user });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to authenticate user' });
+  }
+});
 // 2. Shared Library Sync Endpoints
 app.get('/api/library', (req, res) => {
   try {
