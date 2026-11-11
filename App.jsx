@@ -446,7 +446,7 @@ try {
     try {
       const cleanQ = encodeURIComponent(query);
       // 1. Search Open Library by author specific field with a higher capacity
-      const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&limit=100`, {
+     const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&language=eng&limit=100`, {
         mode: 'cors'
       }).catch(() => null);
 
@@ -494,22 +494,39 @@ try {
         if (!doc.title) continue;
 
        const docLangs = Array.isArray(doc.language) ? doc.language : [];
-        const primaryLang = docLangs[0] || 'eng';
-        const isEnglish = primaryLang === 'eng' || primaryLang === 'en';
 
-        // Detect foreign edition subtitles or common Spanish/Italian/Portuguese title markers
-        const isForeignTitle = /\b(edici[oó]n|edizione|edicao|italiano|portugu[eê]s|deutsche?|nunca|columna|pilastri|tinieblas)\b/i.test(doc.title);
+        // 1. If Open Library lists foreign languages, drop it unless English is the primary/only language
+        const nonEnglishCodes = ['spa', 'fre', 'ita', 'ger', 'deu', 'por', 'dut', 'nld', 'rus', 'chi', 'zho', 'jpn', 'pol', 'swe', 'dan', 'nor'];
+        const hasForeignLanguageCode = docLangs.some(l => nonEnglishCodes.includes(l.toLowerCase()));
+        if (hasForeignLanguageCode && docLangs[0] !== 'eng' && docLangs[0] !== 'en') {
+          continue;
+        }
 
-        // Strict English-only: skip standalone records that aren't primarily English
-        if (!isEnglish || isForeignTitle) continue;
-        // Extract primary display title (strip Spanish side if slash-separated)
+        // 2. Normalize accents and lowercase so "Caída" -> "caida", "Águias" -> "aguias"
+        const cleanTitleLower = doc.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+        // 3. Catch leading or inverted Romance/German articles ("El...", "La...", "... , La", "... , El")
+        const hasForeignArticles = 
+          /^(el|la|los|las|un|una|il|lo|gli|le|o|os|as|um|uma|das|der|die|ein|eine)\b/i.test(cleanTitleLower) ||
+          /,\s*(el|la|los|las|un|una|il|lo|gli|le|o|os|as|um|uma|das|der|die|ein|eine)$/i.test(cleanTitleLower);
+
+        // 4. Catch common translation keywords (Spanish, French, Italian, Portuguese, German)
+        const hasForeignKeywords = /\b(edicion|edizione|edicao|edition|italiano|portugues|deutsch|french|caida|gigantes|mundo|mondo|senza|terra|aguilas|aguia|columna|pilastri|tinieblas|eternidad|alta finanza|nadel|siegeszug|winterdrachen)\b/i.test(cleanTitleLower);
+
+        // 5. Catch multi-book box sets and raw publisher dump records
+        const isOmnibusOrFormatJunk = /\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(cleanTitleLower);
+
+        if (hasForeignArticles || hasForeignKeywords || isOmnibusOrFormatJunk) {
+          continue;
+        }
+
+        // 6. Extract primary display title (strip foreign half if slash-separated)
         let displayTitle = doc.title;
         if (displayTitle.includes('/')) {
           const parts = displayTitle.split('/').map(p => p.trim());
-          const engCandidate = parts.find(p => !/^(el|la|las|los|un|una|nunca)\b/i.test(p));
+          const engCandidate = parts.find(p => !/^(el|la|los|las|un|una|il|lo|le|das|der|die|nunca)\b/i.test(p));
           displayTitle = engCandidate || parts[parts.length - 1];
         }
-
         const canonicalKey = getCanonicalTitleKey(displayTitle);
 
         // Language label for edition tracking
