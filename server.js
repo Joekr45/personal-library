@@ -18,7 +18,8 @@ const server = createServer({
   dataDir: DATA_DIR,
   distDir: path.join(__dirname, 'dist'),
   allowRegistration: ALLOW_REGISTRATION,
-  googleApiKey: process.env.GOOGLE_BOOKS_API_KEY || ''
+  googleApiKey: process.env.GOOGLE_BOOKS_API_KEY || '',
+  startBackups: true
 });
 
 server.listen(PORT, () => {

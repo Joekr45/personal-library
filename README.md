@@ -13,6 +13,17 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - Passwords are stored securely hashed (scrypt); sign-in uses a secure cookie that lasts 90 days.
 - To stop new people from signing up, set the environment variable `ALLOW_REGISTRATION=false`.
 
+## Settings
+
+- **My books:** download your books as a spreadsheet (CSV, Goodreads-style columns).
+- **Home screen:** install the app on a phone so it opens full-screen like a normal app (needs an `https://` address; on plain `http://` it works as a bookmark).
+- **Change my password.**
+- **Owner only:** family accounts (book counts, set a new password for someone, remove an account), turn new sign-ups on/off, and backups.
+
+## Backups
+
+Every day the server saves a copy of the database to `DATA_DIR/backups` (keeping the last 7). The owner can also make one on demand or download a full copy from Settings. Covers are in `DATA_DIR/covers`. Backing up the whole `/mnt/user/appdata/personal-library` folder (e.g. with the Appdata Backup plugin) covers everything.
+
 ## Adding books
 
 The **Add** button opens one window with three ways to add a book:

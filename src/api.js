@@ -68,3 +68,12 @@ api.disconnectHardcover = () => request('DELETE', '/api/settings/hardcover').the
 api.findSeries = ({ isbn, title, author }) =>
   request('GET', `/api/series/find?${new URLSearchParams({ isbn: isbn || '', title: title || '', author: author || '' })}`);
 api.seriesBooks = (id) => request('GET', `/api/series/${encodeURIComponent(id)}/books`);
+
+// Account, data and owner tools
+api.changePassword = (currentPassword, newPassword) => request('PUT', '/api/auth/password', { currentPassword, newPassword });
+api.listUsers = () => request('GET', '/api/admin/users');
+api.setSignups = (open) => request('PUT', '/api/admin/signups', { open }).then(d => d.signupsOpen);
+api.resetUserPassword = (id, password) => request('POST', `/api/admin/users/${encodeURIComponent(id)}/password`, { password });
+api.removeUser = (id) => request('DELETE', `/api/admin/users/${encodeURIComponent(id)}`);
+api.listBackups = () => request('GET', '/api/admin/backups').then(d => d.backups);
+api.backupNow = () => request('POST', '/api/admin/backups').then(d => d.backups);
