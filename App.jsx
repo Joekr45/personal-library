@@ -243,9 +243,8 @@ useEffect(() => {
         .catch(err => {
           console.error('Login failed:', err);
           setAuthError('Could not connect to server. Please try again.');
-        });
-    }
-    } else {
+      });
+  } else {
       const exists = users.some(u => u.email.toLowerCase() === cleanEmail);
       if (exists) {
         setAuthError('An account with this email address already exists.');
