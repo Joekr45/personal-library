@@ -475,15 +475,59 @@ try {
           (books || []).flatMap(b => (b.editions || []).map(e => (e.isbn || '').trim()))
         );
 
-        // Deduplicate works by lowercase title
-        const seenTitles = new Set();
-        const foundBooks = [];
+       // Helper to strip leading articles ("The", "A", "An") and symbols for matching
+      const getCanonicalTitleKey = (rawTitle) => {
+        let t = rawTitle.toLowerCase().trim();
+        // If title has a slash (e.g. "Armadura de la Luz / The Armor of Light"), extract the parts
+        if (t.includes('/')) {
+          const parts = t.split('/').map(p => p.trim());
+          // Prefer parts that don't start with common Spanish prefixes if an English side exists
+          const englishPart = parts.find(p => !p.startsWith('el ') && !p.startsWith('la ') && !p.startsWith('las ') && !p.startsWith('los ') && !p.startsWith('una ') && !p.startsWith('un '));
+          t = englishPart || parts[0];
+        }
+        return t.replace(/^(the|a|an)\s+/i, '').replace(/[^a-z0-9]/g, '');
+      };
 
-        for (const doc of data.docs) {
-          if (!doc.title) continue;
-          const normalizedTitle = doc.title.trim().toLowerCase();
-          if (seenTitles.has(normalizedTitle)) continue;
-          seenTitles.add(normalizedTitle);
+      const booksMap = new Map();
+
+      for (const doc of data.docs) {
+        if (!doc.title) continue;
+
+        const docLangs = Array.isArray(doc.language) ? doc.language : [];
+        const isExclusivelyNonEnglish = docLangs.length > 0 && !docLangs.includes('eng') && !docLangs.includes('en');
+
+        // Extract primary display title (strip Spanish side if slash-separated)
+        let displayTitle = doc.title;
+        if (displayTitle.includes('/')) {
+          const parts = displayTitle.split('/').map(p => p.trim());
+          const engCandidate = parts.find(p => !/^(el|la|las|los|un|una|nunca)\b/i.test(p));
+          displayTitle = engCandidate || parts[parts.length - 1];
+        }
+
+        const canonicalKey = getCanonicalTitleKey(displayTitle);
+
+        // Language label for edition tracking
+        const editionLanguage = docLangs.includes('spa') ? 'Spanish' : docLangs.includes('eng') || docLangs.length === 0 ? 'English' : docLangs[0].toUpperCase();
+
+        const editionEntry = {
+          id: `ed-${doc.key || Math.random().toString(36).substring(2, 9)}`,
+          title: doc.title,
+          language: editionLanguage,
+          format: 'Paperback',
+          isbn: doc.isbn ? doc.isbn[0] : 'Pending Scan',
+          published: doc.first_publish_year ? String(doc.first_publish_year) : 'Unknown',
+          publisher: (doc.publisher && doc.publisher[0]) || 'Publisher'
+        };
+
+        if (booksMap.has(canonicalKey)) {
+          // Attach translation/edition under the master English work
+          const master = booksMap.get(canonicalKey);
+          if (!master.editions.some(e => e.isbn === editionEntry.isbn && e.title === editionEntry.title)) {
+            master.editions.push(editionEntry);
+          }
+        } else {
+          // If this is a standalone translation work with no English match in catalog, skip it
+          if (isExclusivelyNonEnglish) continue;
 
           const coverId = doc.cover_i;
           const isbn = doc.isbn ? doc.isbn[0] : null;
@@ -497,23 +541,28 @@ try {
             a.toLowerCase().includes(query.toLowerCase())
           ) || doc.author_name?.[0] || resolvedDisplayName;
 
-          // Check if this work exists in the user's library
+          const normalizedTitle = displayTitle.trim().toLowerCase();
           const isOwned =
             ownedTitleSet.has(normalizedTitle) ||
+            ownedTitleSet.has(getCanonicalTitleKey(displayTitle)) ||
             (isbn && ownedIsbnSet.has(isbn));
 
-          foundBooks.push({
-            id: doc.key || `ol-${foundBooks.length}-${Date.now()}`,
-            title: doc.title,
+          booksMap.set(canonicalKey, {
+            id: doc.key || `ol-${booksMap.size}-${Date.now()}`,
+            title: displayTitle,
             author: matchingAuthor,
             publishedDate: doc.first_publish_year ? String(doc.first_publish_year) : 'Unknown',
             description: 'Catalog bibliography entry.',
             coverUrl: cover,
             isbn: isbn || 'Pending Scan',
             category: (doc.subject && doc.subject[0]) || 'Fiction',
-            isOwned: Boolean(isOwned)
+            isOwned: Boolean(isOwned),
+            editions: [editionEntry]
           });
         }
+      }
+
+      const foundBooks = Array.from(booksMap.values());
 
         // Sort so owned books appear first, followed by publication year descending
         foundBooks.sort((a, b) => {
