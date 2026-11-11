@@ -61,7 +61,7 @@ export default function SettingsModal({ settings, onChange, onClose }) {
           {hc.connected ? (
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-800">
               <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">Connected{hc.username ? <> as <b>@{hc.username}</b></> : null}.</span>
+              <span className="flex-1">Connected{hc.username ? <> as <b>@{hc.username}</b></> : ' to Hardcover'}.</span>
               {settings.isOwner && (
                 <button onClick={disconnect} disabled={isSaving} className="font-semibold underline">Disconnect</button>
               )}
@@ -79,10 +79,11 @@ export default function SettingsModal({ settings, onChange, onClose }) {
                 <li>
                   Open{' '}
                   <a href="https://hardcover.app/account/api" target="_blank" rel="noreferrer" className="text-orange-600 font-semibold underline inline-flex items-center gap-0.5">
-                    Settings → Hardcover API <ExternalLink className="w-3 h-3" />
+                    API Access <ExternalLink className="w-3 h-3" />
                   </a>{' '}
-                  and copy the long code shown there.
+                  and click <b>Create key</b>: any name, expiration <b>Never</b>, permission <b>read:catalog</b> only.
                 </li>
+                <li>Copy the key it shows (it's only shown once).</li>
                 <li>Paste it below and tap <b>Connect</b>.</li>
               </ol>
               <textarea

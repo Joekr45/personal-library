@@ -274,7 +274,8 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       if (!token) throw new HttpError(400, 'Paste your Hardcover API code first.');
       const username = await hardcoverCall(() => hardcover.testToken(token));
       setSetting('hardcover_token', token);
-      setSetting('hardcover_username', username);
+      if (username) setSetting('hardcover_username', username);
+      else deleteSetting('hardcover_username');
       hardcover.clearCache();
       return { status: 200, body: { hardcover: { connected: true, username } } };
     },

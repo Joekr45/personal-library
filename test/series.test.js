@@ -24,8 +24,12 @@ async function fakeHardcover(url, options) {
   const auth = options.headers.Authorization;
   const { query, variables } = JSON.parse(options.body);
   calls.push({ query, variables, auth });
-  if (auth !== `Bearer ${GOOD_TOKEN}`) return json({ errors: [{ message: 'Could not verify JWT: JWSError' }] });
-  if (query.includes('me {')) return json({ data: { me: [{ username: 'yoel' }] } });
+  if (auth !== `Bearer ${GOOD_TOKEN}` && auth !== `Bearer ${GOOD_TOKEN}-catalog-only`) return json({ errors: [{ message: 'Could not verify JWT: JWSError' }] });
+  if (query.includes('me {')) {
+    if (auth.endsWith('catalog-only')) return json({ errors: [{ message: "field 'me' not found in type: 'query_root'" }] });
+    return json({ data: { me: [{ username: 'yoel' }] } });
+  }
+  if (query.includes('books(limit: 1)')) return json({ data: { books: [{ id: 1 }] } });
   if (query.includes('_in: $ids')) {
     return json({ data: { books: variables.ids.filter(id => id !== 103).map(id => ({ id, image: { url: `https://assets.hardcover.app/${id}.jpg` } })) } });
   }
@@ -94,6 +98,12 @@ test('only the owner can connect, and a wrong code is rejected', async () => {
   assert.equal(bad.status, 502);
   assert.match((await bad.json()).error, /did not accept/);
   assert.equal((await (await call('GET', '/api/settings')).json()).hardcover.connected, false);
+});
+
+test('a key with only catalog permission connects (without a username)', async () => {
+  const res = await call('PUT', '/api/settings/hardcover', { token: `${GOOD_TOKEN}-catalog-only` });
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).hardcover, { connected: true, username: null });
 });
 
 test('connecting stores the code on the server only', async () => {

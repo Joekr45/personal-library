@@ -68,12 +68,17 @@ export function createHardcover({ getToken, fetchImpl = globalThis.fetch }) {
     return value;
   };
 
-  // Check a code works; returns the Hardcover username.
+  // Check a code works. The app only needs catalog access (Hardcover's "read:catalog" permission),
+  // so the check is a tiny catalog lookup. The username is shown if the key is allowed to read it.
   const testToken = async (token) => {
-    const data = await query('query { me { username } }', {}, token);
-    const me = Array.isArray(data.me) ? data.me[0] : data.me;
-    if (!me) throw new HardcoverError('Hardcover did not accept the API code.');
-    return me.username || 'connected';
+    await query('query { books(limit: 1) { id } }', {}, token);
+    try {
+      const data = await query('query { me { username } }', {}, token);
+      const me = Array.isArray(data.me) ? data.me[0] : data.me;
+      return me?.username || null;
+    } catch {
+      return null; // key works for the catalog but can't see the account — that's fine
+    }
   };
 
   // A book can belong to several series (e.g. a main series and a "complete collection").
