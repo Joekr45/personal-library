@@ -609,11 +609,12 @@ try {
           bio: `Catalog bibliography for ${resolvedDisplayName}. (${foundBooks.filter(b => b.isOwned).length} of ${foundBooks.length} owned)`,
           books: foundBooks
       });
+   });
     } else {
       setAuthorSearchError(`No catalog records found matching "${query}". Check spelling or try a different name.`);
     }
-  } catch (err) {
-      console.warn('Author query fallback active:', err);
+  }
+} catch (err) {
       setAuthorSearchError('Connection timeout or rate limit from catalog.');
     } finally {
       setIsSearchingAuthor(false);
