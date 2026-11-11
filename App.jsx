@@ -446,7 +446,7 @@ try {
     try {
       const cleanQ = encodeURIComponent(query);
       // 1. Search Open Library by author specific field with a higher capacity
-    const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&limit=100`, {
+    const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&language=eng&limit=100`, {
         mode: 'cors'
       }).catch(() => null);
 
@@ -502,29 +502,38 @@ try {
           (doc.isbn && doc.isbn.some(code => ownedIsbnSet.has(code)));
 
         if (!isDocOwned) {
-          // 2. Metadata Language Tag Gate
-          // If Open Library tagged languages and none are English, drop it
+          // 1. Language metadata check: If Open Library specifies languages, reject if English is missing
           const rawLangs = Array.isArray(doc.language) ? doc.language : [doc.language];
           const langs = rawLangs.filter(Boolean).map(l => String(l).toLowerCase().trim());
           if (langs.length > 0 && !langs.some(l => l === 'eng' || l === 'en' || l.startsWith('en-'))) {
             continue;
           }
 
-          // 3. Normalize Unicode accents (e.g. "Caída" -> "caida", "Águias" -> "aguias")
-          const cleanTitle = doc.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+          // 2. Reject non-ASCII characters (catches accented titles like Colección, Mundo, Coluna, etc.)
+          if (/[^\u0000-\u007F]/.test(doc.title)) {
+            continue;
+          }
 
-          // 4. Safe Romance/Germanic Articles (strictly non-English, avoiding "die" or "un")
-          const startsWithForeignArticle = /^(el|la|los|las|les|des|du|il|lo|gli|le|o|os|as|das|der)\s+/i.test(cleanTitle);
-          const endsWithInvertedArticle = /,\s*(el|la|los|las|les|des|du|il|lo|gli|le|o|os|as|das|der)$/i.test(cleanTitle);
+          // 3. Reject box sets and omnibus dumps
+          if (/\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(doc.title)) {
+            continue;
+          }
 
-          // 5. Universal Foreign Connectors & Common Single Words (catches untagged translations like "Nunca")
-          const hasForeignGrammar = /\b(nunca|de\s+la|de\s+los|del|della|degli|pour|avec|sobre|und|der\s+tag|roman)\b/i.test(cleanTitle);
+          // 4. English structural word check for multi-word titles
+          const titleWords = doc.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+          const englishConnectors = new Set([
+            'the', 'a', 'an', 'and', 'of', 'in', 'to', 'for', 'with', 'on', 'at',
+            'from', 'by', 'about', 'as', 'into', 'like', 'through', 'after',
+            'over', 'between', 'out', 'against', 'during', 'without', 'before',
+            'under', 'around', 'among', 'is', 'are', 'was', 'were', 'be', 'been',
+            'no', 'not', 'all', 'any', 'my', 'your', 'his', 'her', 'their', 'our',
+            'man', 'world', 'time', 'day', 'night', 'dark', 'light', 'fire'
+          ]);
 
-          // 6. Foreign Volume Markers & Multi-Book Sets
-          const hasForeignVolume = /\b(tome\s*\d+|volumen|edici[oó]n|edizione|edicao)\b/i.test(cleanTitle);
-          const isOmnibus = /\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(cleanTitle);
+          const hasEnglishConnector = titleWords.some(w => englishConnectors.has(w));
+          const isSingleWordTitle = titleWords.length === 1;
 
-         if (startsWithForeignArticle || endsWithInvertedArticle || hasForeignGrammar || hasForeignVolume || isOmnibus) {
+          if (!hasEnglishConnector && !isSingleWordTitle) {
             continue;
           }
         }
