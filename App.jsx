@@ -524,13 +524,12 @@ try {
           const hasForeignVolume = /\b(tome\s*\d+|volumen|edici[oó]n|edizione|edicao)\b/i.test(cleanTitle);
           const isOmnibus = /\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(cleanTitle);
 
-          if (startsWithForeignArticle || endsWithInvertedArticle || hasForeignGrammar || hasForeignVolume || isOmnibus) {
+         if (startsWithForeignArticle || endsWithInvertedArticle || hasForeignGrammar || hasForeignVolume || isOmnibus) {
             continue;
           }
         }
-        }
 
-        // 6. Extract primary display title (strip foreign half if slash-separated)
+      // 6. Extract primary display title (strip foreign half if slash-separated)
         let displayTitle = doc.title;
         if (displayTitle.includes('/')) {
           const parts = displayTitle.split('/').map(p => p.trim());
@@ -609,12 +608,11 @@ try {
           name: resolvedDisplayName,
           bio: `Catalog bibliography for ${resolvedDisplayName}. (${foundBooks.filter(b => b.isOwned).length} of ${foundBooks.length} owned)`,
           books: foundBooks
-       });
+      });
     } else {
       setAuthorSearchError(`No catalog records found matching "${query}". Check spelling or try a different name.`);
     }
-  }
-} catch (err) {
+  } catch (err) {
       console.warn('Author query fallback active:', err);
       setAuthorSearchError('Connection timeout or rate limit from catalog.');
     } finally {
