@@ -33,6 +33,19 @@ Tap a grey book to add it to your wishlist, say you own it (the usual cover/lang
 
 The bibliography combines Open Library (works in English, one entry per book; translations and box sets/study guides are left out) with Google Books (for new releases). Hidden entries are remembered per person.
 
+## Series (with Hardcover)
+
+Series information comes from **Hardcover** (hardcover.app), which knows series far better than the free catalogs.
+The library **Owner** connects it once: **Settings → Hardcover** → paste the API code from https://hardcover.app/account/api.
+The code is stored only on the server (in the database), never sent to browsers.
+
+When connected:
+- New books are put in their series automatically (by ISBN, or title + author).
+- The **Series** page has a **Find series for N books** button to fill in books added earlier.
+- Each series is shown in reading order (#1, #2, #3…), with books you don't have greyed out; tap one to add it to your wishlist or say you own it.
+
+Without Hardcover the Series page still works from series you type in (Edit), and shows gaps in the numbering.
+
 ## Covers
 
 Whenever a book is added (scan, ISBN, title search or typed in) you can **Change cover**: the app shows every cover it can find for that book, labelled by edition (language, year, publisher), with **This edition** first. You can also use a **photo of your own copy** or **paste a link** to a picture. Every book's page has a **Change cover** button too.

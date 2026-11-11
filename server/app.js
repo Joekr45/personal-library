@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { openDatabase } from './db.js';
 import { createLookup } from './lookup.js';
 import { createCoverStore, CoverError, COVER_CONTENT_TYPES } from './covers.js';
+import { createHardcover, HardcoverError, cleanToken } from './hardcover.js';
 import { classifyCode } from '../shared/isbn.js';
 import {
   SESSION_COOKIE, hashPassword, verifyPassword, createSession, userForSession,
@@ -48,6 +49,26 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
   const db = openDatabase(dataDir);
   const lookup = createLookup({ fetchImpl, googleApiKey });
   const covers = createCoverStore({ dataDir, fetchImpl, resolveHost });
+
+  // Library-wide settings
+  const getSetting = (key) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
+  const setSetting = (key, value) => db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+  const deleteSetting = (key) => db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+  const hardcover = createHardcover({ getToken: () => getSetting('hardcover_token'), fetchImpl });
+
+  const requireOwner = (req) => {
+    const user = requireUser(req);
+    if (user.role !== 'Owner') throw new HttpError(403, 'Only the library owner can change this setting.');
+    return user;
+  };
+  const hardcoverCall = async (fn) => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof HardcoverError) throw new HttpError(502, err.message);
+      throw err;
+    }
+  };
   deleteExpiredSessions(db);
   setInterval(() => deleteExpiredSessions(db), 6 * 60 * 60 * 1000).unref();
 
@@ -233,6 +254,56 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       return { status: 200, body: { authors: await lookup.searchAuthors(q) } };
     },
 
+    // ----- Settings -----
+    'GET /api/settings': (req) => {
+      const user = requireUser(req);
+      const connected = Boolean(getSetting('hardcover_token'));
+      return {
+        status: 200,
+        body: {
+          isOwner: user.role === 'Owner',
+          hardcover: { connected, username: connected ? getSetting('hardcover_username') : null }
+        }
+      };
+    },
+
+    // Connect Hardcover: checks the code works before saving it. The code is never sent back to browsers.
+    'PUT /api/settings/hardcover': async (req) => {
+      requireOwner(req);
+      const token = cleanToken((await readJson(req)).token);
+      if (!token) throw new HttpError(400, 'Paste your Hardcover API code first.');
+      const username = await hardcoverCall(() => hardcover.testToken(token));
+      setSetting('hardcover_token', token);
+      if (username) setSetting('hardcover_username', username);
+      else deleteSetting('hardcover_username');
+      hardcover.clearCache();
+      return { status: 200, body: { hardcover: { connected: true, username } } };
+    },
+
+    'DELETE /api/settings/hardcover': (req) => {
+      requireOwner(req);
+      deleteSetting('hardcover_token');
+      deleteSetting('hardcover_username');
+      hardcover.clearCache();
+      return { status: 200, body: { hardcover: { connected: false, username: null } } };
+    },
+
+    // ----- Series (needs Hardcover) -----
+    // Which series is this book in? ?isbn=&title=&author=
+    'GET /api/series/find': async (req) => {
+      requireUser(req);
+      if (!getSetting('hardcover_token')) return { status: 200, body: { available: false, series: null } };
+      const params = new URL(req.url, 'http://localhost').searchParams;
+      const code = classifyCode(params.get('isbn') || '');
+      const series = await hardcoverCall(() => hardcover.findSeries({
+        isbn13: code.isbn13 || '',
+        isbn10: code.isbn10 || '',
+        title: cleanText(params.get('title') || '', 300),
+        author: cleanText(params.get('author') || '', 200)
+      }));
+      return { status: 200, body: { available: true, series } };
+    },
+
     'GET /api/books': (req) => {
       const user = requireUser(req);
       const rows = db.prepare('SELECT id, data FROM books WHERE user_id = ? ORDER BY created_at DESC, rowid DESC').all(user.id);
@@ -283,6 +354,15 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       db.prepare('INSERT OR IGNORE INTO hidden_author_books (user_id, author_key, book_id) VALUES (?, ?, ?)').run(user.id, authorKey, bookId);
     }
     return { status: 200, body: { ok: true } };
+  };
+
+  // All books in a series, in reading order: /api/series/<id>/books
+  const seriesBooks = async (req, seriesId) => {
+    requireUser(req);
+    if (!getSetting('hardcover_token')) throw new HttpError(409, 'Connect Hardcover in Settings to see whole series.');
+    const series = await hardcoverCall(() => hardcover.seriesBooks(seriesId));
+    if (!series) throw new HttpError(404, 'Series not found on Hardcover.');
+    return { status: 200, body: series };
   };
 
   // Routes with a book id in the address: /api/books/<id>
@@ -396,12 +476,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
         const bookMatch = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})$/);
         const codeMatch = pathname.match(/^\/api\/lookup\/isbn\/([0-9Xx-]{1,20})$/);
         const coverUpload = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})\/cover$/);
+        const seriesRoute = pathname.match(/^\/api\/series\/(\d{1,10})\/books$/);
         const authorRoute = pathname.match(/^\/api\/authors\/(OL\d+A)\/(works|hidden)$/);
         const coverFile = pathname.match(/^\/api\/covers\/([0-9a-f-]{36}\.(?:jpg|png|webp|gif))$/);
         if (coverFile && req.method === 'GET') return serveCover(req, res, coverFile[1]);
         let result;
         if (route) result = await route(req);
         else if (coverUpload && req.method === 'POST') result = await saveBookCover(req, coverUpload[1]);
+        else if (seriesRoute && req.method === 'GET') result = await seriesBooks(req, seriesRoute[1]);
         else if (authorRoute && authorRoute[2] === 'works' && req.method === 'GET') result = await authorWorks(req, authorRoute[1]);
         else if (authorRoute && authorRoute[2] === 'hidden' && req.method === 'PUT') result = await setAuthorBookHidden(req, authorRoute[1]);
         else if (codeMatch && req.method === 'GET') result = await lookupCode(req, codeMatch[1]);

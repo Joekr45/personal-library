@@ -44,6 +44,8 @@ export default function EditBookModal({ book, onCancel, onSave }) {
       author: author.trim(),
       series: series.trim() || null,
       seriesNumber: series.trim() ? number : null,
+      // A different series name typed by hand no longer matches the Hardcover series
+      ...(series.trim() !== (book.series || '') ? { hardcoverSeriesId: null } : {}),
       shelfLocation: shelf.trim(),
       editions
     });

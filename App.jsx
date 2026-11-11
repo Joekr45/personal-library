@@ -32,7 +32,8 @@ import {
   ExternalLink,
   Pencil,
   Menu,
-  ImagePlus
+  ImagePlus,
+  Settings
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
@@ -40,6 +41,8 @@ import ScannerModal from './src/ScannerModal.jsx';
 import { LANGUAGES } from './src/languages.js';
 import CoverPicker from './src/CoverPicker.jsx';
 import AuthorPage from './src/AuthorPage.jsx';
+import SeriesPage from './src/SeriesPage.jsx';
+import SettingsModal from './src/SettingsModal.jsx';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -64,6 +67,10 @@ export default function App() {
   const [isLibraryLoaded, setIsLibraryLoaded] = useState(false);
   const [libraryError, setLibraryError] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [settings, setSettings] = useState(null); // { isOwner, hardcover: { connected, username } }
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const booksRef = useRef(books);
+  booksRef.current = books;
 
   // Auth Screen Form State
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
@@ -97,6 +104,7 @@ export default function App() {
       return;
     }
     setLibraryError(null);
+    api.getSettings().then(setSettings).catch(() => setSettings(null));
     api.listBooks()
       .then(setBooks)
       .catch(err => setLibraryError(err.message))
@@ -121,6 +129,7 @@ export default function App() {
     try {
       const saved = await api.createBook(book);
       setBooks(prev => prev.map(b => (b.id === tempId ? saved : b)));
+      if (!saved.series && settings?.hardcover?.connected) fillSeries(saved);
       return saved;
     } catch (err) {
       setBooks(prev => prev.filter(b => b.id !== tempId));
@@ -129,8 +138,22 @@ export default function App() {
     }
   };
 
+  // Ask Hardcover which series a newly added book is in (in the background).
+  const fillSeries = async (book) => {
+    try {
+      const { series } = await api.findSeries({
+        isbn: toIsbn13(book.editions?.[0]?.isbn) || '',
+        title: book.workTitle,
+        author: book.author
+      });
+      if (series) await updateBook(book.id, { series: series.name, seriesNumber: series.position, hardcoverSeriesId: series.id });
+    } catch {
+      // not important enough to show an error
+    }
+  };
+
   const updateBook = async (bookId, changes) => {
-    const before = books.find(b => b.id === bookId);
+    const before = booksRef.current.find(b => b.id === bookId);
     if (!before) return null;
     setBooks(prev => prev.map(b => (b.id === bookId ? { ...b, ...changes } : b)));
     setSelectedBook(prev => (prev && prev.id === bookId ? { ...prev, ...changes } : prev));
@@ -378,8 +401,9 @@ export default function App() {
     const saved = await addBook({
       workTitle: entry.title,
       author: [author.name, ...(entry.coAuthors || [])].join(', '),
-      series: null,
-      seriesNumber: null,
+      series: entry.series || null,
+      seriesNumber: entry.seriesNumber ?? null,
+      hardcoverSeriesId: entry.hardcoverSeriesId || null,
       owned: false,
       readingStatus: 'Unread',
       shelfLocation: '',
@@ -411,6 +435,9 @@ export default function App() {
       isbn13: entry.isbn13 || null,
       workKey: entry.workKey || null,
       sources: entry.sources,
+      series: entry.series || null,
+      seriesNumber: entry.seriesNumber ?? null,
+      hardcoverSeriesId: entry.hardcoverSeriesId || null,
       covers: entry.cover ? [{ url: entry.cover.replace(/-M\.jpg$/, '-L.jpg') }] : []
     });
     setIsScanModalOpen(true);
@@ -604,6 +631,14 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:text-orange-600 bg-slate-50 hover:bg-orange-50 rounded-xl transition-colors border border-slate-200/60"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Settings</span>
+            </button>
 
             <button
               onClick={handleLogout}
@@ -841,59 +876,15 @@ export default function App() {
           )}
 
           {activeSection === 'series' && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-900">Series Collections</h2>
-                <p className="text-xs text-slate-500">
-                  Organized by chronological reading sequence from your bookshelf.
-                </p>
-              </div>
-
-              {counts.series === 0 ? (
-                <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl">
-                  <p className="text-xs text-slate-500">
-                    No series added yet. When you scan or add a book with a series name, it will group here automatically.
-                  </p>
-                </div>
-              ) : (
-                Array.from(new Set(books.map(b => b.series).filter(Boolean))).map(seriesName => {
-                  const sBooks = books
-                    .filter(b => b.series === seriesName)
-                    .sort((a, b) => (a.seriesNumber || 99) - (b.seriesNumber || 99));
-
-                  return (
-                    <div key={seriesName} className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                        <div>
-                          <h3 className="text-base font-bold text-slate-900">{seriesName}</h3>
-                          <p className="text-xs text-slate-500">
-                            by{' '}
-                            <button
-                              onClick={(e) => navigateToAuthor(sBooks[0]?.author, e)}
-                              className="font-semibold text-slate-800 hover:text-orange-600 underline"
-                            >
-                              {sBooks[0]?.author || 'Unknown'}
-                            </button>{' '}
-                            • {sBooks.length} titles
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-5">
-                        {sBooks.map(book => (
-                          <AppleBookCard
-                            key={book.id}
-                            book={book}
-                            onClick={() => { setSelectedBook(book); setActiveEditionIndex(0); }}
-                            onAuthorClick={(e) => navigateToAuthor(book.author, e)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+            <SeriesPage
+              books={books}
+              hardcoverConnected={Boolean(settings?.hardcover?.connected)}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }}
+              onUpdateBook={updateBook}
+              onAddOwned={addOwnedFromAuthor}
+              onAddWishlist={addWishlistFromAuthor}
+            />
           )}
 
           {activeSection !== 'authors' && activeSection !== 'series' && (
@@ -1393,6 +1384,10 @@ export default function App() {
             </form>
           </div>
         </div>
+      )}
+
+      {isSettingsOpen && settings && (
+        <SettingsModal settings={settings} onChange={setSettings} onClose={() => setIsSettingsOpen(false)} />
       )}
 
       {/* COVER PICKERS */}

@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -63,6 +63,15 @@ function migrate(db) {
           author_key TEXT NOT NULL,
           book_id    TEXT NOT NULL,
           PRIMARY KEY (user_id, author_key, book_id)
+        );
+      `);
+    }
+    if (current < 3) {
+      db.exec(`
+        -- Library-wide settings (e.g. the Hardcover connection), set by the Owner.
+        CREATE TABLE settings (
+          key   TEXT PRIMARY KEY,
+          value TEXT NOT NULL
         );
       `);
     }
