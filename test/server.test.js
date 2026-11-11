@@ -182,3 +182,28 @@ test('blocks repeated password guessing', async () => {
   }
   assert.equal(last.status, 429);
 });
+
+test('reading life: rating, notes, dates, date added, yearly goal', async () => {
+  const c = client();
+  await c('POST', '/api/auth/register', { email: 'reader2@example.com', password: 'long enough' });
+  const created = (await c('POST', '/api/books', book('Fall of Giants', { addedAt: '1999-01-01T00:00:00Z' }))).body.book;
+  assert.match(created.addedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  assert.notEqual(created.addedAt, '1999-01-01T00:00:00Z', 'date added is set by the server');
+
+  const rated = (await c('PUT', `/api/books/${created.id}`, { rating: 4.4, notes: 'Loved it', dateStarted: '2026-01-02', dateFinished: '2026-02-03' })).body.book;
+  assert.equal(rated.rating, 4.5);
+  assert.equal(rated.notes, 'Loved it');
+  assert.equal(rated.dateFinished, '2026-02-03');
+  assert.equal(rated.addedAt, created.addedAt);
+  assert.equal((await c('PUT', `/api/books/${created.id}`, { rating: 9 })).body.book.rating, null);
+  assert.equal((await c('PUT', `/api/books/${created.id}`, { dateFinished: 'yesterday' })).status, 400);
+  assert.equal((await c('PUT', `/api/books/${created.id}`, { dateFinished: null })).body.book.dateFinished, null);
+
+  assert.deepEqual((await c('GET', '/api/me/goal?year=2026')).body, { year: 2026, goal: null });
+  assert.deepEqual((await c('PUT', '/api/me/goal', { year: 2026, goal: 24 })).body, { year: 2026, goal: 24 });
+  assert.equal((await c('GET', '/api/me/goal?year=2026')).body.goal, 24);
+  assert.equal((await c('PUT', '/api/me/goal', { year: 2026, goal: -3 })).status, 400);
+  const other = client();
+  await other('POST', '/api/auth/register', { email: 'reader3@example.com', password: 'long enough' });
+  assert.equal((await other('GET', '/api/me/goal?year=2026')).body.goal, null, 'goals are per person');
+});

@@ -13,6 +13,12 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - Passwords are stored securely hashed (scrypt); sign-in uses a secure cookie that lasts 90 days.
 - To stop new people from signing up, set the environment variable `ALLOW_REGISTRATION=false`.
 
+## Reading life
+
+- On a book's page: **star rating** (1–5, halves allowed), **started/finished dates** (filled in automatically when you mark a book Reading or Completed) and **notes**.
+- **My Year** (menu): books finished this year, a **yearly goal** with "ahead/behind schedule", books per month, pages, average rating, top author, and **Up next in your series**.
+- Book lists have a **sort menu** (title, author, recently added, recently finished, rating, year published — remembered on each device) and **filters** (shelf, language, format, rating).
+
 ## Settings
 
 - **My books:** download your books as a spreadsheet (CSV, Goodreads-style columns).

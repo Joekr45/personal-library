@@ -149,17 +149,33 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
       throw new HttpError(400, 'Book data is missing.');
     }
-    const { id, userId, user_id, ...data } = input; // the server decides ids and owners
+    const { id, userId, user_id, addedAt, ...data } = input; // the server decides ids, owners and dates added
     data.workTitle = cleanText(data.workTitle);
     data.author = cleanText(data.author);
     if (!data.workTitle) throw new HttpError(400, 'A book needs a title.');
     if (!data.author) throw new HttpError(400, 'A book needs an author.');
     if (!Array.isArray(data.editions)) data.editions = [];
     data.owned = data.owned !== false;
+    // Reading life: rating 1-5 (halves allowed), notes, and dates as YYYY-MM-DD.
+    if (data.rating !== undefined) {
+      const r = Math.round(Number(data.rating) * 2) / 2;
+      data.rating = r >= 0.5 && r <= 5 ? r : null;
+    }
+    if (data.notes !== undefined) data.notes = typeof data.notes === 'string' ? data.notes.slice(0, 20000) : null;
+    for (const field of ['dateStarted', 'dateFinished']) {
+      if (data[field] !== undefined && data[field] !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(data[field]))) {
+        throw new HttpError(400, 'Dates must look like 2026-11-11.');
+      }
+    }
     return data;
   };
 
-  const bookFromRow = (row) => ({ ...JSON.parse(row.data), id: row.id });
+  // created_at is stored as "YYYY-MM-DD HH:MM:SS" (UTC); send it to the app as a proper date.
+  const bookFromRow = (row) => ({
+    ...JSON.parse(row.data),
+    id: row.id,
+    ...(row.created_at ? { addedAt: `${row.created_at.replace(' ', 'T')}Z` } : {})
+  });
 
   // ---------- API routes ----------
   const routes = {
@@ -359,7 +375,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
 
     'GET /api/books': (req) => {
       const user = requireUser(req);
-      const rows = db.prepare('SELECT id, data FROM books WHERE user_id = ? ORDER BY created_at DESC, rowid DESC').all(user.id);
+      const rows = db.prepare('SELECT id, data, created_at FROM books WHERE user_id = ? ORDER BY created_at DESC, rowid DESC').all(user.id);
       return { status: 200, body: { books: rows.map(bookFromRow) } };
     },
 
@@ -370,7 +386,30 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       const data = validateBook(body);
       const id = crypto.randomUUID();
       db.prepare('INSERT INTO books (id, user_id, data) VALUES (?, ?, ?)').run(id, user.id, JSON.stringify(data));
-      return { status: 201, body: { book: { ...data, id } } };
+      return { status: 201, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(id)) } };
+    },
+
+    // Yearly reading goal: GET ?year=2026, PUT { year, goal }
+    'GET /api/me/goal': (req) => {
+      const user = requireUser(req);
+      const year = Number(new URL(req.url, 'http://localhost').searchParams.get('year')) || new Date().getFullYear();
+      const goal = Number(getSetting(`goal:${user.id}:${year}`)) || null;
+      return { status: 200, body: { year, goal } };
+    },
+
+    'PUT /api/me/goal': async (req) => {
+      const user = requireUser(req);
+      const body = await readJson(req);
+      const year = Number(body.year);
+      const goal = Number(body.goal);
+      if (!Number.isInteger(year) || year < 1900 || year > 3000) throw new HttpError(400, 'Which year?');
+      if (!goal) {
+        deleteSetting(`goal:${user.id}:${year}`);
+        return { status: 200, body: { year, goal: null } };
+      }
+      if (!Number.isInteger(goal) || goal < 1 || goal > 1000) throw new HttpError(400, 'The goal must be a number of books between 1 and 1000.');
+      setSetting(`goal:${user.id}:${year}`, String(goal));
+      return { status: 200, body: { year, goal } };
     }
   };
 
@@ -504,7 +543,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       }
       db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
         .run(JSON.stringify(data), bookId, user.id);
-      return { status: 200, body: { book: { ...data, id: bookId } } };
+      return { status: 200, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(bookId)) } };
     },
     DELETE: (req, bookId) => {
       const user = requireUser(req);
@@ -541,7 +580,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
     db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
       .run(JSON.stringify(data), bookId, user.id);
     if (oldFile && oldFile !== file) covers.remove(oldFile);
-    return { status: 200, body: { book: { ...data, id: bookId } } };
+    return { status: 200, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(bookId)) } };
   };
 
   // Send a saved cover picture, only to the person whose book it belongs to.
