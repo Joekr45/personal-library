@@ -7,12 +7,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 80;
-const DATA_DIR = path.join(__dirname, 'data');
+const PORT = Number(process.env.PORT) || 80;
+// Where users.json and library.json are saved. In Docker this is /data,
+// which must be mapped to a folder on the host (e.g. Unraid appdata) so it survives updates.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 
 app.use(express.json({ limit: '10mb' }));
+
+// Write a file safely: write to a temporary file first, then rename it into place.
+// If the server stops mid-write, the original file is left intact instead of half-written.
+function writeJsonSafely(filePath, data) {
+  const tmpPath = `${filePath}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+  fs.renameSync(tmpPath, filePath);
+}
 
 // Ensure data directory and data files exist
 if (!fs.existsSync(DATA_DIR)) {
@@ -49,7 +59,7 @@ app.post('/api/register', (req, res) => {
     } else {
       users.push(newUser);
     }
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8');
+    writeJsonSafely(USERS_FILE, users);
     res.json({ success: true, user: newUser });
   } catch (err) {
     res.status(500).json({ error: 'Failed to save user' });
@@ -95,7 +105,7 @@ app.post('/api/library', (req, res) => {
     }
 
     const mergedData = { ...currentData, ...incomingData };
-    fs.writeFileSync(LIBRARY_FILE, JSON.stringify(mergedData, null, 2), 'utf8');
+    writeJsonSafely(LIBRARY_FILE, mergedData);
     res.json({ success: true, library: mergedData });
   } catch (err) {
     res.status(500).json({ error: 'Failed to persist library data' });
@@ -109,5 +119,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}, saving data in ${DATA_DIR}`);
 });
