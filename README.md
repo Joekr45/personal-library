@@ -13,6 +13,20 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - Passwords are stored securely hashed (scrypt); sign-in uses a secure cookie that lasts 90 days.
 - To stop new people from signing up, set the environment variable `ALLOW_REGISTRATION=false`.
 
+## Adding books
+
+The **Add** button opens one window with three ways to add a book:
+
+- **Scan** the barcode with the phone/computer camera.
+- **Type ISBN** (10 or 13 digits, from the copyright page or near the barcode).
+- **Find by Title** (title and/or author), then pick the right match.
+
+Lookups are done by the server, which asks **Open Library** and **Google Books** at the same time and combines the answers (Google often has new releases before Open Library). Optional: set `GOOGLE_BOOKS_API_KEY` to raise Google's daily limit.
+
+Older mass-market paperbacks often have a 12-digit **store barcode (UPC)** on the back instead of the ISBN barcode. The app recognises these and explains where to find the real ISBN.
+
+Camera scanning needs a browser that allows camera access (on phones this usually means an `https://` address) and uses the browser's built-in barcode reader where available (Android/Chrome), falling back to ZXing elsewhere.
+
 ## How updates reach the server
 
 1. A change is merged into the `main` branch on GitHub.

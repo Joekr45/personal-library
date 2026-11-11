@@ -40,3 +40,8 @@ export const api = {
   updateBook: (id, changes) => request('PUT', `/api/books/${encodeURIComponent(id)}`, changes).then(d => d.book),
   deleteBook: (id) => request('DELETE', `/api/books/${encodeURIComponent(id)}`)
 };
+
+// Catalog lookups (done by our server, which checks Open Library and Google Books)
+api.lookupCode = (code) => request('GET', `/api/lookup/isbn/${encodeURIComponent(code)}`);
+api.searchCatalog = (title, author) =>
+  request('GET', `/api/lookup/search?${new URLSearchParams({ title: title || '', author: author || '' })}`).then(d => d.results);

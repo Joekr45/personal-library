@@ -31,10 +31,13 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
-  Pencil
+  Pencil,
+  Menu
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
+import ScannerModal from './src/ScannerModal.jsx';
+import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
 const COVER_THEMES = [
@@ -151,12 +154,6 @@ export default function App() {
     }
   };
 
-  // Keep the latest values in refs so the camera scanning loop (which runs on a timer)
-  // always sees the current book list instead of the list from when the camera opened.
-  const booksRef = useRef(books);
-  booksRef.current = books;
-  const isLookingUpRef = useRef(false);
-
   // View state
   const [activeSection, setActiveSection] = useState('all');
   const [selectedAuthor, setSelectedAuthor] = useState(null);
@@ -175,14 +172,6 @@ export default function App() {
   const [selectedBook, setSelectedBook] = useState(null);
   const [activeEditionIndex, setActiveEditionIndex] = useState(0);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
-  const [scanMode, setScanMode] = useState('camera');
-  const [scannedIsbnInput, setScannedIsbnInput] = useState('');
-  const [isLookingUpIsbn, setIsLookingUpIsbn] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
-  const [duplicateAlert, setDuplicateAlert] = useState(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState(null);
-  const [scanSuccessFeedback, setScanSuccessFeedback] = useState(false);
 
   // Manual Add Form Modal
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
@@ -198,51 +187,8 @@ export default function App() {
   // Edit Book Details modal
   const [editingBook, setEditingBook] = useState(null);
 
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const scanIntervalRef = useRef(null);
-  const barcodeDetectorRef = useRef(null);
-
-  // Initialize Barcode Detector or load fallback ZXing script
-  useEffect(() => {
-    if ('BarcodeDetector' in window) {
-      try {
-        barcodeDetectorRef.current = new window.BarcodeDetector({
-          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128']
-        });
-      } catch (e) {
-        console.warn('BarcodeDetector format error:', e);
-      }
-    } else {
-      if (!document.getElementById('zxing-script')) {
-        const script = document.createElement('script');
-        script.id = 'zxing-script';
-        script.src = 'https://unpkg.com/@zxing/library@latest/umd/index.min.js';
-        script.async = true;
-        document.body.appendChild(script);
-      }
-    }
-  }, []);
-
-  // Beep sound on successful barcode lock
-  const playBeep = () => {
-    try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.15);
-      if (navigator.vibrate) navigator.vibrate(100);
-    } catch (e) {
-      // AudioContext muted or blocked
-    }
-  };
+  // Phone layout: is the slide-out menu open?
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Auth Handlers
   const handleAuthSubmit = async (e) => {
@@ -284,155 +230,6 @@ export default function App() {
     setIsManualAddOpen(false);
     setActiveSection('all');
     setSearchQuery('');
-  };
-
-  // Real-time lookup for ISBN
-  const handleLookupIsbn = async (rawIsbn) => {
-    const raw = (rawIsbn || scannedIsbnInput).trim().replace(/[^0-9X]/gi, '');
-    if (!raw) return;
-   if (raw.length !== 10 && raw.length !== 12 && raw.length !== 13) return;
-    const existing = booksRef.current.find(b =>
-      (b.editions || []).some(e => String(e.isbn || '').replace(/[^0-9X]/gi, '') === raw)
-    );
-    if (existing) {
-      setDuplicateAlert({
-        book: existing,
-        message: existing.owned === false
-          ? `"${existing.workTitle}" by ${existing.author} is already on your wishlist.`
-          : `You already own this book: "${existing.workTitle}" by ${existing.author} on shelf "${existing.shelfLocation || 'Living Room Shelf'}".`
-      });
-      setScanResult(null);
-      return;
-    }
-
-    setDuplicateAlert(null);
-    setIsLookingUpIsbn(true);
-    isLookingUpRef.current = true;
-try {
- const cleanIsbn = raw.replace(/[^0-9X]/gi, '');
-    
-    // 1. Try Google Books
-    const gQuery = cleanIsbn.length === 12 ? `q=${cleanIsbn}` : `q=isbn:${cleanIsbn}`;
-    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?${gQuery}`).catch(() => null);
-    if (gRes && gRes.ok) {
-      const gData = await gRes.json();
-     if (gData.items && gData.items.length > 0) {
-        const info = gData.items[0].volumeInfo;
-        const authorName = info.authors ? info.authors.join(', ') : '';
-        if (authorName) {
-          const coverSet = new Set();
-          if (info.imageLinks?.thumbnail) {
-            coverSet.add(info.imageLinks.thumbnail.replace('http://', 'https://'));
-          }
-          coverSet.add(`https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`);
-
-          const searchRes = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(info.title)}&author=${encodeURIComponent(authorName)}&limit=1`).catch(() => null);
-          if (searchRes && searchRes.ok) {
-            const sData = await searchRes.json();
-            const doc = sData.docs?.[0];
-            if (doc?.cover_i) {
-              coverSet.add(`https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`);
-            }
-            if (Array.isArray(doc?.edition_key)) {
-              doc.edition_key.slice(0, 8).forEach(k => {
-                coverSet.add(`https://covers.openlibrary.org/b/olid/${k}-L.jpg`);
-              });
-            }
-          }
-
-          const availableCovers = Array.from(coverSet);
-
-          setScanResult({
-            workTitle: info.title || 'Untitled Book',
-            author: authorName,
-            series: null,
-            seriesNumber: null,
-            coverUrl: availableCovers[0] || null,
-            availableCovers,
-            edition: {
-              title: info.title || 'Untitled Book',
-              language: 'English',
-              format: 'Physical Print',
-              isbn: cleanIsbn,
-              published: info.publishedDate || 'Catalog Print',
-              publisher: info.publisher || 'Publisher'
-            }
-         });
-      return;
-    }
-  }
-}
-    // 2. Open Library fallback (with full author names)
-   const bibkey = cleanIsbn.length === 12 ? `UPC:${cleanIsbn}` : `ISBN:${cleanIsbn}`;
-  const olRes = await fetch(`https://openlibrary.org/api/books?bibkeys=${bibkey}&format=json&jscmd=data`).catch(() => null);
-  if (olRes && olRes.ok) {
-    const olData = await olRes.json();
-    const bookKey = bibkey;
-      if (olData[bookKey]) {
-      const book = olData[bookKey];
-        const authorName = book.authors ? book.authors.map(a => a.name).join(', ') : '';
-        const workTitle = book.title || 'Untitled Book';
-
-        const coverSet = new Set();
-        if (book.cover?.large) coverSet.add(book.cover.large);
-        if (book.cover?.medium) coverSet.add(book.cover.medium);
-        coverSet.add(`https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`);
-
-        const searchRes = await fetch(`https://openlibrary.org/search.json?title=${encodeURIComponent(workTitle)}&limit=1`).catch(() => null);
-        if (searchRes && searchRes.ok) {
-          const sData = await searchRes.json();
-          const doc = sData.docs?.[0];
-          if (doc?.cover_i) coverSet.add(`https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`);
-          if (Array.isArray(doc?.edition_key)) {
-            doc.edition_key.slice(0, 8).forEach(k => {
-              coverSet.add(`https://covers.openlibrary.org/b/olid/${k}-L.jpg`);
-            });
-          }
-        }
-
-        const availableCovers = Array.from(coverSet);
-
-        setScanResult({
-          workTitle,
-          author: authorName || 'Unknown Author',
-          series: null,
-          seriesNumber: null,
-          coverUrl: availableCovers[0] || null,
-          availableCovers,
-          edition: {
-            title: workTitle,
-            language: 'English',
-            format: 'Physical Print',
-            isbn: cleanIsbn,
-            published: book.publish_date || 'Catalog Print',
-            publisher: book.publishers ? book.publishers.map(p => p.name).join(', ') : 'Publisher'
-          }
-        });
-        return;
-      }
-    }
-
-      setScanResult({
-        workTitle: `Book (ISBN: ${raw})`,
-        author: 'Please enter author',
-        series: null,
-        seriesNumber: null,
-        coverUrl: `https://covers.openlibrary.org/b/isbn/${raw}-L.jpg`,
-        edition: {
-          title: `Book (ISBN: ${raw})`,
-          language: 'English',
-          format: 'Physical Print',
-          isbn: raw,
-          published: 'Catalog Print',
-          publisher: 'Publisher'
-        }
-      });
-    } catch (err) {
-      console.warn('Network lookup caught safely:', err);
-    } finally {
-      setIsLookingUpIsbn(false);
-      isLookingUpRef.current = false;
-    }
   };
 
   // Global Author Search
@@ -681,110 +478,6 @@ try {
     return filteredBooks.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredBooks, currentPage, activeSection]);
 
-  // Continuous Camera Scanning Loop
-  const startScanningLoop = () => {
-    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
-
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-    scanIntervalRef.current = setInterval(async () => {
-      const video = videoRef.current;
-      if (!video || video.readyState < 2 || isLookingUpRef.current) return;
-
-      try {
-        if (barcodeDetectorRef.current) {
-          const barcodes = await barcodeDetectorRef.current.detect(video);
-          if (barcodes && barcodes.length > 0) {
-            const rawVal = barcodes[0].rawValue.trim();
-            if (rawVal) {
-              clearInterval(scanIntervalRef.current);
-              playBeep();
-              setScanSuccessFeedback(true);
-              setTimeout(() => setScanSuccessFeedback(false), 1500);
-              setScannedIsbnInput(rawVal);
-              handleLookupIsbn(rawVal);
-              return;
-            }
-          }
-        } else if (window.ZXing) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-          if (!window._zxingReader) {
-            window._zxingReader = new window.ZXing.BrowserMultiFormatReader();
-          }
-
-          try {
-            const result = await window._zxingReader.decodeFromImageElement(canvas);
-            if (result && result.getText()) {
-              const text = result.getText().trim();
-              clearInterval(scanIntervalRef.current);
-              playBeep();
-              setScanSuccessFeedback(true);
-              setTimeout(() => setScanSuccessFeedback(false), 1500);
-              setScannedIsbnInput(text);
-              handleLookupIsbn(text);
-              return;
-            }
-          } catch (zxErr) {
-            // Normal scan frame miss
-          }
-        }
-      } catch (err) {}
-    }, 250);
-  };
-
-  const stopCameraStream = () => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setIsCameraActive(false);
-  };
-
-  const startCameraStream = async () => {
-    setCameraError(null);
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera access not supported on this browser.');
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute('playsinline', 'true');
-        await videoRef.current.play().catch(() => {});
-      }
-      setIsCameraActive(true);
-      startScanningLoop();
-    } catch (err) {
-      setCameraError('Camera standby or permission needed. You can also enter the ISBN manually.');
-      setIsCameraActive(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isScanModalOpen && scanMode === 'camera') {
-      startCameraStream();
-    } else {
-      stopCameraStream();
-    }
-    return () => stopCameraStream();
-  }, [isScanModalOpen, scanMode]);
-
   // Move a book between "on my shelves" (owned) and "wishlist" (wanted).
   const setOwned = (bookId, owned) => updateBook(bookId, { owned });
 
@@ -798,33 +491,23 @@ try {
     }
   };
 
-  const handleAddScannedBook = () => {
-    if (!scanResult) return;
-    const newBook = {
-      workTitle: scanResult.workTitle,
-      author: scanResult.author,
-      series: scanResult.series,
-      seriesNumber: scanResult.seriesNumber,
-      owned: true,
-      readingStatus: 'Unread',
-      shelfLocation: 'Living Room Shelf',
-      customCoverUrl: scanResult.coverUrl,
-      theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
-      editions: [{ id: `ed-${Date.now()}`, ...scanResult.edition }]
-    };
-    addBook(newBook);
-    stopCameraStream();
-    setIsScanModalOpen(false);
-    setScanResult(null);
-    setScannedIsbnInput('');
-    setDuplicateAlert(null);
+  // Open the "type it in yourself" form, optionally pre-filled (e.g. from a failed lookup).
+  const openManualAdd = (prefill = {}) => {
+    setManualTitle(prefill.title || '');
+    setManualAuthor(prefill.author || '');
+    setManualIsbn(prefill.isbn || '');
+    setManualSeries('');
+    setManualSeriesNum('');
+    setManualOwned(true);
+    setIsManualAddOpen(true);
   };
 
   const handleManualAddSubmit = (e) => {
     e.preventDefault();
     if (!manualTitle.trim() || !manualAuthor.trim()) return;
 
-    const cleanIsbn = manualIsbn.trim().replace(/[^0-9X]/gi, '') || 'Pending Scan';
+    const typedIsbn = manualIsbn.trim().replace(/[^0-9X]/gi, '');
+    const cleanIsbn = toIsbn13(typedIsbn) || typedIsbn || 'Pending Scan';
     const cover = cleanIsbn !== 'Pending Scan' ? `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg` : null;
 
     const newBook = {
@@ -1035,9 +718,19 @@ try {
   }
 
   return (
-    <div className="flex h-screen w-full bg-[#fbfbfd] text-slate-900 font-sans antialiased overflow-hidden select-none">
+    <div className="flex h-screen h-[100dvh] w-full bg-[#fbfbfd] text-slate-900 font-sans antialiased overflow-hidden select-none">
+      {/* On phones the sidebar slides in from the left; tapping outside closes it */}
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 z-30 md:hidden" onClick={() => setIsSidebarOpen(false)} />
+      )}
+
       {/* SIDEBAR */}
-      <aside className="w-64 flex-shrink-0 bg-[#f4f4f7]/95 backdrop-blur-2xl border-r border-slate-200/80 flex flex-col justify-between p-4 z-20">
+      <aside
+        onClick={(e) => { if (e.target.closest('button')) setIsSidebarOpen(false); }}
+        className={`fixed inset-y-0 left-0 z-40 md:static md:z-20 md:translate-x-0 transform transition-transform duration-200 ${
+          isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        } w-64 flex-shrink-0 bg-[#f4f4f7] md:bg-[#f4f4f7]/95 backdrop-blur-2xl border-r border-slate-200/80 flex flex-col justify-between p-4`}
+      >
         <div className="space-y-5 overflow-y-auto pr-1">
           <div className="flex items-center gap-3 px-1 pt-1">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 via-amber-500 to-amber-400 flex items-center justify-center text-white shadow-md shadow-orange-500/20">
@@ -1223,14 +916,21 @@ try {
 
       {/* MAIN WORKSPACE */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#fbfbfd] overflow-hidden">
-        <header className="h-16 border-b border-slate-200/80 bg-[#fbfbfd]/80 backdrop-blur-md px-8 flex items-center justify-between gap-4 z-10 flex-shrink-0">
-          <div className="relative w-96">
+        <header className="h-16 border-b border-slate-200/80 bg-[#fbfbfd]/80 backdrop-blur-md px-3 md:px-8 flex items-center justify-between gap-2 md:gap-4 z-10 flex-shrink-0">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="md:hidden w-9 h-9 flex-shrink-0 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700"
+            aria-label="Open menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="relative flex-1 min-w-0 md:flex-none md:w-96">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-              placeholder="Search your library by title, author, series, or ISBN..."
+              placeholder="Search your library…"
               className="w-full pl-9 pr-8 py-2 bg-slate-100 hover:bg-slate-200/50 focus:bg-white text-xs text-slate-900 placeholder-slate-400 rounded-xl border border-transparent focus:border-slate-300 focus:outline-none transition-all shadow-2xs"
             />
             {searchQuery && (
@@ -1243,8 +943,8 @@ try {
             )}
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+            <div className="hidden sm:flex bg-slate-100 p-0.5 rounded-xl border border-slate-200">
               <button
                 onClick={() => setViewMode('grid')}
                 className={`p-1.5 rounded-lg transition-all ${
@@ -1266,28 +966,25 @@ try {
             </div>
 
             <button
-              onClick={() => setIsManualAddOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+              onClick={() => openManualAdd()}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition-all"
             >
               <Plus className="w-4 h-4 text-orange-500" />
               <span>Add Manually</span>
             </button>
 
             <button
-              onClick={() => {
-                setDuplicateAlert(null);
-                setScanResult(null);
-                setIsScanModalOpen(true);
-              }}
+              onClick={() => setIsScanModalOpen(true)}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white rounded-xl text-xs font-semibold shadow-xs transition-all"
             >
               <ScanBarcode className="w-4 h-4" />
-              <span>Scan Barcode</span>
+              <span className="hidden sm:inline">Scan / Find Book</span>
+              <span className="sm:hidden">Add</span>
             </button>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="flex-1 overflow-y-auto px-3 md:px-8 py-4 md:py-6">
           {activeSection === 'authors' && (
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-orange-500/10 via-amber-500/5 to-transparent border border-orange-200/80 p-6 rounded-3xl space-y-4">
@@ -1619,7 +1316,7 @@ try {
                       <span>Scan Barcode</span>
                     </button>
                     <button
-                      onClick={() => setIsManualAddOpen(true)}
+                      onClick={() => openManualAdd()}
                       className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl flex items-center gap-2"
                     >
                       <Plus className="w-4 h-4" />
@@ -1738,16 +1435,16 @@ try {
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6">
-              <div className="flex gap-6 items-start">
-                <div className="w-40 flex-shrink-0">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-6">
+              <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 items-center sm:items-start">
+                <div className="w-32 sm:w-40 flex-shrink-0">
                   <AppleBookCover
                     book={selectedBook}
                     height="h-56"
                   />
                 </div>
 
-                <div className="flex-1 space-y-3">
+                <div className="flex-1 w-full space-y-3">
                   <div>
                     <h3 className="text-xl font-bold text-slate-900 leading-tight">{selectedBook.workTitle}</h3>
                     <button
@@ -2054,167 +1751,15 @@ try {
         </div>
       )}
 
-     {/* MODAL: LIVE CAMERA BARCODE SCANNER */}
+      {/* MODAL: ADD A BOOK (scan / type ISBN / find by title) */}
       {isScanModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden flex flex-col max-h-[95vh]">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-              <div className="flex items-center gap-2">
-                <ScanBarcode className="w-4 h-4 text-orange-500" />
-                <h3 className="text-sm font-bold text-slate-900">ISBN Barcode Scanner</h3>
-              </div>
-              <button
-                onClick={() => { stopCameraStream(); setIsScanModalOpen(false); }}
-                className="w-7 h-7 rounded-full bg-slate-200/60 hover:bg-slate-200 flex items-center justify-center text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex bg-slate-100 p-1 border-b border-slate-200 text-xs">
-              <button
-                onClick={() => setScanMode('camera')}
-                className={`flex-1 py-2 rounded-xl font-semibold transition-all ${
-                  scanMode === 'camera' ? 'bg-white shadow-xs text-orange-600' : 'text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                Live Camera
-              </button>
-              <button
-                onClick={() => { stopCameraStream(); setScanMode('manual'); }}
-                className={`flex-1 py-2 rounded-xl font-semibold transition-all ${
-                  scanMode === 'manual' ? 'bg-white shadow-xs text-orange-600' : 'text-slate-500 hover:text-slate-900'
-                }`}
-              >
-                Manual ISBN
-              </button>
-            </div>
-
-            <div className="p-5 overflow-y-auto space-y-4">
-              {scanMode === 'camera' ? (
-                <div className="space-y-3">
-                  <div className="relative aspect-video bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800">
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 border-2 border-orange-500/50 rounded-2xl pointer-events-none" />
-                  </div>
-                  {cameraError && (
-                    <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">
-                      {cameraError}
-                    </div>
-                  )}
-                  {scanSuccessFeedback && (
-                    <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl text-center font-semibold">
-                      Barcode Detected!
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Enter 10 or 13 digit ISBN..."
-                      value={scannedIsbnInput}
-                      onChange={(e) => setScannedIsbnInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleLookupIsbn(scannedIsbnInput); }}
-                      className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500"
-                    />
-                    <button
-                      onClick={() => handleLookupIsbn(scannedIsbnInput)}
-                      disabled={isLookingUpIsbn || !scannedIsbnInput.trim()}
-                      className="px-4 py-2 bg-orange-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold hover:bg-orange-600 shadow-xs flex items-center gap-1.5"
-                    >
-                      {isLookingUpIsbn ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Finding...</span>
-                        </>
-                      ) : (
-                        <span>Lookup ISBN</span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {duplicateAlert && (
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
-                  <div className="text-xs text-amber-800 font-medium">
-                    {duplicateAlert.message}
-                  </div>
-                </div>
-              )}
-
-              {scanResult && (
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3">
-                  <div className="flex gap-4 items-start">
-                    <div className="w-16 h-24 bg-white rounded-lg border border-emerald-200 overflow-hidden shrink-0 shadow-xs">
-                      {scanResult.coverUrl ? (
-                        <img
-                          src={scanResult.coverUrl}
-                          alt={scanResult.workTitle}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
-                      )}
-                    </div>
-
-                    <div className="text-xs min-w-0 flex-1 space-y-1">
-                      <div className="font-bold text-slate-900 text-sm truncate">{scanResult.workTitle}</div>
-                      <div className="text-slate-600">by {scanResult.author}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {scanResult.edition.published} • {scanResult.edition.format}
-                      </div>
-
-                      {scanResult.availableCovers && scanResult.availableCovers.length > 0 && (
-                  <div className="pt-2">
-                    <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
-                      Choose Cover Edition:
-                    </span>
-                    <div className="flex gap-2 overflow-x-auto pb-1 max-w-[280px]">
-                      {scanResult.availableCovers.map((url, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => setScanResult(prev => ({ ...prev, coverUrl: url }))}
-                          className={`relative shrink-0 w-11 h-16 rounded-md overflow-hidden border-2 transition-all ${
-                            scanResult.coverUrl === url
-                              ? 'border-emerald-600 ring-2 ring-emerald-500/30 scale-105'
-                              : 'border-slate-200 hover:border-slate-400 opacity-70 hover:opacity-100'
-                          }`}
-                        >
-                          <img
-                            src={url}
-                            alt="Cover Option"
-                            className="w-full h-full object-cover"
-                            onError={(e) => { e.currentTarget.parentElement.style.display = 'none'; }}
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleAddScannedBook}
-                    className="w-full py-2 bg-emerald-600 text-white font-semibold text-xs rounded-xl shadow-xs hover:bg-emerald-700 transition-colors"
-                  >
-                    + Place In My Library
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <ScannerModal
+          books={books}
+          coverThemes={COVER_THEMES}
+          onClose={() => setIsScanModalOpen(false)}
+          onAdd={addBook}
+          onManualAdd={openManualAdd}
+        />
       )}
     </div>
   );

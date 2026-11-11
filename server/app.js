@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { openDatabase } from './db.js';
+import { createLookup } from './lookup.js';
+import { classifyCode } from '../shared/isbn.js';
 import {
   SESSION_COOKIE, hashPassword, verifyPassword, createSession, userForSession,
   deleteSession, deleteExpiredSessions, publicUser,
@@ -41,8 +43,9 @@ class HttpError extends Error {
   }
 }
 
-export function createServer({ dataDir, distDir, allowRegistration = true }) {
+export function createServer({ dataDir, distDir, allowRegistration = true, fetchImpl, googleApiKey }) {
   const db = openDatabase(dataDir);
+  const lookup = createLookup({ fetchImpl, googleApiKey });
   deleteExpiredSessions(db);
   setInterval(() => deleteExpiredSessions(db), 6 * 60 * 60 * 1000).unref();
 
@@ -194,6 +197,16 @@ export function createServer({ dataDir, distDir, allowRegistration = true }) {
       return { status: 200, body: { ok: true }, headers: { 'Set-Cookie': sessionCookie(req, '', 0) } };
     },
 
+    // Search the catalogs by title and/or author.
+    'GET /api/lookup/search': async (req) => {
+      requireUser(req);
+      const params = new URL(req.url, 'http://localhost').searchParams;
+      const title = cleanText(params.get('title') || '', 200);
+      const author = cleanText(params.get('author') || '', 200);
+      if (!title && !author) throw new HttpError(400, 'Enter a title, an author, or both.');
+      return { status: 200, body: { results: await lookup.searchBooks({ title, author }) } };
+    },
+
     'GET /api/books': (req) => {
       const user = requireUser(req);
       const rows = db.prepare('SELECT id, data FROM books WHERE user_id = ? ORDER BY created_at DESC, rowid DESC').all(user.id);
@@ -207,6 +220,16 @@ export function createServer({ dataDir, distDir, allowRegistration = true }) {
       db.prepare('INSERT INTO books (id, user_id, data) VALUES (?, ?, ?)').run(id, user.id, JSON.stringify(data));
       return { status: 201, body: { book: { ...data, id } } };
     }
+  };
+
+  // Look up a scanned or typed code: /api/lookup/isbn/<code>
+  const lookupCode = async (req, rawCode) => {
+    requireUser(req);
+    const code = classifyCode(rawCode);
+    if (code.kind === 'invalid') throw new HttpError(400, code.reason);
+    if (code.kind === 'upc') return { status: 200, body: { kind: 'upc', code: code.code } };
+    const book = await lookup.lookupIsbn(code.isbn13, code.isbn10);
+    return { status: 200, body: { kind: 'isbn', isbn13: code.isbn13, isbn10: code.isbn10, found: Boolean(book), book } };
   };
 
   // Routes with a book id in the address: /api/books/<id>
@@ -265,8 +288,10 @@ export function createServer({ dataDir, distDir, allowRegistration = true }) {
       if (pathname.startsWith('/api/')) {
         const route = routes[`${req.method} ${pathname}`];
         const bookMatch = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})$/);
+        const codeMatch = pathname.match(/^\/api\/lookup\/isbn\/([0-9Xx-]{1,20})$/);
         let result;
         if (route) result = await route(req);
+        else if (codeMatch && req.method === 'GET') result = await lookupCode(req, codeMatch[1]);
         else if (bookMatch && bookRoutes[req.method]) result = await bookRoutes[req.method](req, bookMatch[1]);
         else throw new HttpError(404, 'Not found.');
         return sendJson(res, result.status, result.body, result.headers);

@@ -1,0 +1,620 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ScanBarcode, X, RefreshCw, AlertTriangle, CheckCircle2, Search, Keyboard, Heart, Library, BookOpen, Info
+} from 'lucide-react';
+import { api } from './api.js';
+import { classifyCode, toIsbn13 } from '../shared/isbn.js';
+
+// Same idea as the server's normalizeTitle: used to spot books already in the library.
+const normalizeTitle = (title) =>
+  String(title || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/^(the|a|an)\s+/, '').replace(/[^a-z0-9]/g, '');
+
+const playBeep = () => {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.15);
+    if (navigator.vibrate) navigator.vibrate(100);
+  } catch {
+    // sound blocked — not important
+  }
+};
+
+// Reads one video frame with ZXing (used on browsers without a built-in barcode reader, e.g. iPhone).
+function decodeWithZxing(video, canvas) {
+  const ZX = window.ZXing;
+  if (!ZX || !video.videoWidth) return null;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d', { willReadFrequently: true }).drawImage(video, 0, 0);
+  try {
+    if (!window._plZxingReader) {
+      const hints = new Map();
+      hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, [ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8, ZX.BarcodeFormat.UPC_A, ZX.BarcodeFormat.UPC_E]);
+      window._plZxingReader = new ZX.MultiFormatReader();
+      window._plZxingReader.setHints(hints);
+    }
+    const source = new ZX.HTMLCanvasElementLuminanceSource(canvas);
+    const bitmap = new ZX.BinaryBitmap(new ZX.HybridBinarizer(source));
+    return window._plZxingReader.decode(bitmap)?.getText() || null;
+  } catch {
+    return null; // no barcode in this frame
+  }
+}
+
+const TABS = [
+  { id: 'camera', label: 'Scan', icon: ScanBarcode },
+  { id: 'isbn', label: 'Type ISBN', icon: Keyboard },
+  { id: 'search', label: 'Find by Title', icon: Search }
+];
+
+// The "Add a book" window: scan a barcode, type an ISBN, or search by title/author.
+export default function ScannerModal({ books, onClose, onAdd, onManualAdd, coverThemes }) {
+  const [mode, setMode] = useState('camera');
+
+  // camera
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+  const detectorRef = useRef(null);
+  const canvasRef = useRef(null);
+  const busyRef = useRef(false);
+  const [cameraState, setCameraState] = useState('idle'); // idle | starting | scanning | paused | error
+  const [cameraError, setCameraError] = useState('');
+
+  // lookup
+  const [isbnInput, setIsbnInput] = useState('');
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [notice, setNotice] = useState(null); // { type: 'upc'|'invalid'|'notfound'|'duplicate'|'error', ... }
+  const [result, setResult] = useState(null);
+  const [chosenCover, setChosenCover] = useState(null);
+  const [brokenCovers, setBrokenCovers] = useState([]);
+  const [lastAdded, setLastAdded] = useState(null);
+
+  // title search
+  const [searchTitle, setSearchTitle] = useState('');
+  const [searchAuthor, setSearchAuthor] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchError, setSearchError] = useState('');
+  const [addedFromSearch, setAddedFromSearch] = useState({});
+
+  const booksRef = useRef(books);
+  booksRef.current = books;
+
+  // ---------- camera ----------
+  const stopCamera = () => {
+    clearInterval(timerRef.current);
+    timerRef.current = null;
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  };
+
+  const startScanLoop = () => {
+    clearInterval(timerRef.current);
+    busyRef.current = false;
+    setCameraState('scanning');
+    if (!canvasRef.current) canvasRef.current = document.createElement('canvas');
+    timerRef.current = setInterval(async () => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || busyRef.current) return;
+      busyRef.current = true;
+      try {
+        let text = null;
+        if (detectorRef.current) {
+          const codes = await detectorRef.current.detect(video);
+          text = codes?.[0]?.rawValue?.trim() || null;
+        } else {
+          text = decodeWithZxing(video, canvasRef.current);
+        }
+        if (text) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+          setCameraState('paused');
+          playBeep();
+          await lookUp(text);
+          return;
+        }
+      } catch {
+        // ignore a bad frame
+      }
+      busyRef.current = false;
+    }, 250);
+  };
+
+  const startCamera = async () => {
+    setCameraError('');
+    setCameraState('starting');
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error(window.isSecureContext
+          ? 'This browser can\'t use the camera.'
+          : 'Your browser only allows the camera on secure (https://) addresses. Use "Type ISBN" or "Find by Title" instead for now.');
+      }
+      if (!detectorRef.current && 'BarcodeDetector' in window) {
+        try {
+          detectorRef.current = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+        } catch {
+          detectorRef.current = null;
+        }
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      startScanLoop();
+    } catch (err) {
+      setCameraState('error');
+      setCameraError(err?.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow camera access for this site in your browser settings, or use "Type ISBN".'
+        : err?.message || 'Could not start the camera.');
+    }
+  };
+
+  useEffect(() => {
+    if (mode === 'camera') startCamera();
+    else stopCamera();
+    return stopCamera;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  // ---------- lookup ----------
+  const resetResult = () => {
+    setNotice(null);
+    setResult(null);
+    setChosenCover(null);
+    setBrokenCovers([]);
+  };
+
+  const scanAgain = () => {
+    resetResult();
+    if (mode === 'camera') startScanLoop();
+  };
+
+  const lookUp = async (raw) => {
+    resetResult();
+    setLastAdded(null);
+    const code = classifyCode(raw);
+    if (code.kind === 'invalid') {
+      setNotice({ type: 'invalid', message: code.reason });
+      return;
+    }
+    if (code.kind === 'upc') {
+      setNotice({ type: 'upc', code: code.code });
+      return;
+    }
+    const existing = booksRef.current.find(b => (b.editions || []).some(e => toIsbn13(e.isbn) === code.isbn13));
+    if (existing) {
+      setNotice({ type: 'duplicate', book: existing });
+      return;
+    }
+    setIsLookingUp(true);
+    try {
+      const data = await api.lookupCode(code.isbn13);
+      if (!data.found) {
+        setNotice({ type: 'notfound', isbn: code.isbn13 });
+      } else {
+        setResult(data.book);
+        setChosenCover(data.book.covers?.[0]?.url || null);
+      }
+    } catch (err) {
+      setNotice({ type: 'error', message: err.message });
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
+  const goodCovers = (result?.covers || []).filter(c => !brokenCovers.includes(c.url));
+
+  const addResult = async (owned) => {
+    if (!result) return;
+    const cover = goodCovers.find(c => c.url === chosenCover)?.url || goodCovers[0]?.url || null;
+    const book = {
+      workTitle: result.title,
+      author: result.authors?.length ? result.authors.join(', ') : 'Unknown Author',
+      series: null,
+      seriesNumber: null,
+      owned,
+      readingStatus: 'Unread',
+      shelfLocation: owned ? 'Living Room Shelf' : '',
+      customCoverUrl: cover,
+      description: result.description || null,
+      workKey: result.workKey || null,
+      theme: coverThemes[Math.floor(Math.random() * coverThemes.length)],
+      editions: [{
+        id: `ed-${Date.now()}`,
+        title: result.title,
+        language: result.language || 'English',
+        format: result.format || 'Physical Print',
+        isbn: result.isbn13,
+        isbn10: result.isbn10 || null,
+        published: result.publishedDate || 'Unknown',
+        publisher: result.publisher || 'Unknown',
+        pageCount: result.pageCount || null
+      }]
+    };
+    const saved = await onAdd(book);
+    if (saved) {
+      setLastAdded({ title: book.workTitle, owned });
+      setIsbnInput('');
+      resetResult();
+      if (mode === 'camera') startScanLoop();
+    }
+  };
+
+  // ---------- title search ----------
+  const runSearch = async (e) => {
+    e?.preventDefault();
+    if (!searchTitle.trim() && !searchAuthor.trim()) return;
+    setIsSearching(true);
+    setSearchError('');
+    setSearchResults(null);
+    setLastAdded(null);
+    try {
+      setSearchResults(await api.searchCatalog(searchTitle.trim(), searchAuthor.trim()));
+    } catch (err) {
+      setSearchError(err.message);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const findInLibrary = (r) => booksRef.current.find(b =>
+    (r.isbn13 && (b.editions || []).some(e => toIsbn13(e.isbn) === r.isbn13)) ||
+    (normalizeTitle(b.workTitle) === normalizeTitle(r.title) &&
+      String(b.author || '').toLowerCase().includes(String(r.authors?.[0] || '').toLowerCase().split(' ').pop()))
+  );
+
+  const addSearchResult = async (r, index, owned) => {
+    const book = {
+      workTitle: r.title,
+      author: r.authors?.length ? r.authors.join(', ') : 'Unknown Author',
+      series: null,
+      seriesNumber: null,
+      owned,
+      readingStatus: 'Unread',
+      shelfLocation: owned ? 'Living Room Shelf' : '',
+      customCoverUrl: r.cover ? r.cover.replace(/-M\.jpg$/, '-L.jpg') : null,
+      workKey: r.workKey || null,
+      theme: coverThemes[Math.floor(Math.random() * coverThemes.length)],
+      editions: [{
+        id: `ed-${Date.now()}`,
+        title: r.title,
+        language: r.language || 'English',
+        format: 'Physical Print',
+        isbn: r.isbn13 || 'Pending Scan',
+        published: r.year || 'Unknown',
+        publisher: r.publisher || 'Unknown'
+      }]
+    };
+    const saved = await onAdd(book);
+    if (saved) setAddedFromSearch(prev => ({ ...prev, [index]: owned ? 'shelf' : 'wishlist' }));
+  };
+
+  const switchMode = (next) => {
+    resetResult();
+    setLastAdded(null);
+    setMode(next);
+  };
+
+  const close = () => {
+    stopCamera();
+    onClose();
+  };
+
+  // ---------- UI ----------
+  const btn = 'px-3 py-2 rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5';
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-stretch sm:items-center justify-center sm:p-4">
+      <div className="bg-white sm:rounded-3xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden flex flex-col h-full sm:h-auto sm:max-h-[95vh]">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+          <div className="flex items-center gap-2">
+            <ScanBarcode className="w-4 h-4 text-orange-500" />
+            <h3 className="text-sm font-bold text-slate-900">Add a Book</h3>
+          </div>
+          <button onClick={close} aria-label="Close" className="w-8 h-8 rounded-full bg-slate-200/60 hover:bg-slate-200 flex items-center justify-center text-slate-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex bg-slate-100 p-1 border-b border-slate-200 text-xs gap-1">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => switchMode(id)}
+              className={`flex-1 py-2.5 rounded-xl font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                mode === id ? 'bg-white shadow-xs text-orange-600' : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+          {lastAdded && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <span>
+                Added <b>{lastAdded.title}</b> to your {lastAdded.owned ? 'shelf' : 'wishlist'}.
+                {mode === 'camera' && ' Ready for the next one.'}
+              </span>
+            </div>
+          )}
+
+          {/* --- Scan --- */}
+          {mode === 'camera' && (
+            <div className="space-y-3">
+              <div className="relative aspect-[4/3] sm:aspect-video bg-black rounded-2xl overflow-hidden flex items-center justify-center">
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 h-24 border-2 border-orange-400/80 rounded-xl pointer-events-none" />
+                {cameraState === 'starting' && <RefreshCw className="absolute w-6 h-6 text-white animate-spin" />}
+              </div>
+              {cameraState === 'scanning' && !result && !notice && (
+                <p className="text-[11px] text-slate-500 text-center">
+                  Point the camera at the barcode. Hold steady about 15 cm (6 in) away.
+                </p>
+              )}
+              {cameraError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">{cameraError}</div>
+              )}
+            </div>
+          )}
+
+          {/* --- Type ISBN --- */}
+          {mode === 'isbn' && (
+            <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); lookUp(isbnInput); }}>
+              <label className="text-[11px] font-semibold text-slate-500 uppercase block" htmlFor="isbn-input">ISBN</label>
+              <div className="flex gap-2">
+                <input
+                  id="isbn-input"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="e.g. 0-451-12438-3 or 978…"
+                  value={isbnInput}
+                  onChange={(e) => setIsbnInput(e.target.value)}
+                  className="flex-1 min-w-0 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-orange-500 font-mono"
+                />
+                <button type="submit" disabled={isLookingUp || !isbnInput.trim()} className={`${btn} bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white`}>
+                  {isLookingUp ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                  Look up
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                The ISBN is printed on the copyright page (back of the title page) or near the barcode. 10 or 13 digits; dashes are fine.
+              </p>
+            </form>
+          )}
+
+          {isLookingUp && mode === 'camera' && (
+            <div className="p-3 text-xs text-slate-600 flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> Looking up the book…</div>
+          )}
+
+          {/* --- Messages after a scan / lookup --- */}
+          {notice?.type === 'upc' && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-3">
+              <div className="flex gap-2 text-xs text-amber-900">
+                <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold">This is a store barcode, not the book's ISBN.</p>
+                  <p>
+                    Older paperbacks have a grocery-store code (UPC) on the back cover. It doesn't say which book it is.
+                    Look for a second barcode <b>inside the front cover</b>, or the <b>ISBN on the copyright page</b> — or search by title.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => switchMode('isbn')} className={`${btn} bg-white border border-amber-300 text-amber-900 hover:bg-amber-100`}>
+                  <Keyboard className="w-3.5 h-3.5" /> Type the ISBN
+                </button>
+                <button onClick={() => switchMode('search')} className={`${btn} bg-white border border-amber-300 text-amber-900 hover:bg-amber-100`}>
+                  <Search className="w-3.5 h-3.5" /> Find by title
+                </button>
+              </div>
+              {mode === 'camera' && (
+                <button onClick={scanAgain} className={`${btn} w-full text-amber-900 hover:bg-amber-100`}>
+                  <ScanBarcode className="w-3.5 h-3.5" /> Scan a different barcode
+                </button>
+              )}
+            </div>
+          )}
+
+          {(notice?.type === 'invalid' || notice?.type === 'error') && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-800 space-y-2">
+              <div className="flex gap-2"><AlertTriangle className="w-4 h-4 flex-shrink-0" /><span>{notice.message}</span></div>
+              {mode === 'camera' && <button onClick={scanAgain} className="font-semibold underline">Scan again</button>}
+            </div>
+          )}
+
+          {notice?.type === 'duplicate' && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 space-y-2">
+              <p>
+                {notice.book.owned === false
+                  ? <>"<b>{notice.book.workTitle}</b>" is already on your wishlist.</>
+                  : <>You already own "<b>{notice.book.workTitle}</b>"{notice.book.shelfLocation ? <> (shelf: {notice.book.shelfLocation})</> : null}.</>}
+              </p>
+              {mode === 'camera' && <button onClick={scanAgain} className="font-semibold underline">Scan another book</button>}
+            </div>
+          )}
+
+          {notice?.type === 'notfound' && (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 text-xs text-slate-700">
+              <p>
+                Couldn't find ISBN <span className="font-mono">{notice.isbn}</span> in Open Library or Google Books.
+                Try searching by title, or enter the details yourself.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => switchMode('search')} className={`${btn} bg-white border border-slate-300 hover:bg-slate-100`}>
+                  <Search className="w-3.5 h-3.5" /> Find by title
+                </button>
+                <button onClick={() => { close(); onManualAdd({ isbn: notice.isbn }); }} className={`${btn} bg-white border border-slate-300 hover:bg-slate-100`}>
+                  <Keyboard className="w-3.5 h-3.5" /> Enter details
+                </button>
+              </div>
+              {mode === 'camera' && (
+                <button onClick={scanAgain} className={`${btn} w-full hover:bg-slate-100`}>
+                  <ScanBarcode className="w-3.5 h-3.5" /> Scan another book
+                </button>
+              )}
+            </div>
+          )}
+
+          {result && (
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3">
+              <div className="flex gap-4 items-start">
+                <div className="w-20 h-28 bg-white rounded-lg border border-emerald-200 overflow-hidden shrink-0 flex items-center justify-center">
+                  {chosenCover && !brokenCovers.includes(chosenCover)
+                    ? <img src={chosenCover} alt="" className="w-full h-full object-cover" onError={() => setBrokenCovers(p => [...p, chosenCover])} />
+                    : <BookOpen className="w-6 h-6 text-slate-300" />}
+                </div>
+                <div className="text-xs min-w-0 flex-1 space-y-1">
+                  <div className="font-bold text-slate-900 text-sm">{result.title}</div>
+                  {result.subtitle && <div className="text-slate-600">{result.subtitle}</div>}
+                  <div className="text-slate-700">by {result.authors?.join(', ') || 'Unknown author'}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {[result.publisher, result.publishedDate, result.format, result.language !== 'English' ? result.language : null].filter(Boolean).join(' • ')}
+                  </div>
+                  <div className="text-[10px] text-slate-400">ISBN {result.isbn13} · found in {result.sources?.join(' & ')}</div>
+                </div>
+              </div>
+
+              {goodCovers.length > 1 && (
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">Choose a cover</span>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {goodCovers.map((c) => (
+                      <button
+                        key={c.url}
+                        type="button"
+                        title={c.source}
+                        onClick={() => setChosenCover(c.url)}
+                        className={`shrink-0 w-11 h-16 rounded-md overflow-hidden border-2 bg-white ${chosenCover === c.url ? 'border-emerald-600' : 'border-slate-200 opacity-70'}`}
+                      >
+                        <img
+                          src={c.url}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          onError={() => setBrokenCovers(p => [...p, c.url])}
+                          onLoad={(e) => { if (e.currentTarget.naturalWidth < 10) setBrokenCovers(p => [...p, c.url]); }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => addResult(true)} className={`${btn} bg-emerald-600 hover:bg-emerald-700 text-white`}>
+                  <Library className="w-3.5 h-3.5" /> Add to My Shelf
+                </button>
+                <button onClick={() => addResult(false)} className={`${btn} bg-white border border-rose-200 text-rose-600 hover:bg-rose-50`}>
+                  <Heart className="w-3.5 h-3.5" /> Add to Wishlist
+                </button>
+              </div>
+              {mode === 'camera' && (
+                <button onClick={scanAgain} className={`${btn} w-full text-slate-600 hover:bg-emerald-100`}>
+                  Not this book? Scan again
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* --- Find by title --- */}
+          {mode === 'search' && (
+            <div className="space-y-3">
+              <form onSubmit={runSearch} className="space-y-2">
+                <input
+                  type="text"
+                  placeholder="Title (e.g. The Man from St. Petersburg)"
+                  value={searchTitle}
+                  onChange={(e) => setSearchTitle(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-orange-500"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Author (optional)"
+                    value={searchAuthor}
+                    onChange={(e) => setSearchAuthor(e.target.value)}
+                    className="flex-1 min-w-0 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-orange-500"
+                  />
+                  <button type="submit" disabled={isSearching || (!searchTitle.trim() && !searchAuthor.trim())} className={`${btn} bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white`}>
+                    {isSearching ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                    Search
+                  </button>
+                </div>
+              </form>
+
+              {searchError && <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">{searchError}</div>}
+              {searchResults && searchResults.length === 0 && (
+                <p className="text-xs text-slate-500 text-center py-4">No matches. Try fewer words, or check the spelling.</p>
+              )}
+              {searchResults && searchResults.length > 0 && (
+                <ul className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden">
+                  {searchResults.map((r, i) => {
+                    const inLibrary = findInLibrary(r);
+                    const added = addedFromSearch[i];
+                    return (
+                      <li key={`${r.title}-${i}`} className="p-3 flex gap-3 items-start bg-white">
+                        <div className="w-12 h-[4.5rem] bg-slate-100 rounded-md overflow-hidden shrink-0 flex items-center justify-center">
+                          {r.cover ? <img src={r.cover} alt="" className="w-full h-full object-cover" loading="lazy" /> : <BookOpen className="w-4 h-4 text-slate-300" />}
+                        </div>
+                        <div className="min-w-0 flex-1 text-xs space-y-0.5">
+                          <div className="font-bold text-slate-900">{r.title}</div>
+                          <div className="text-slate-600">{r.authors?.join(', ') || 'Unknown author'}</div>
+                          <div className="text-[11px] text-slate-400">
+                            {[r.year, r.publisher, r.language && r.language !== 'English' ? r.language : null].filter(Boolean).join(' • ')}
+                          </div>
+                          <div className="pt-1.5 flex gap-1.5 flex-wrap">
+                            {added ? (
+                              <span className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Added to {added === 'shelf' ? 'shelf' : 'wishlist'}
+                              </span>
+                            ) : inLibrary ? (
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                Already {inLibrary.owned === false ? 'on your wishlist' : 'on your shelf'}
+                              </span>
+                            ) : (
+                              <>
+                                <button onClick={() => addSearchResult(r, i, true)} className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-lg">
+                                  + My Shelf
+                                </button>
+                                <button onClick={() => addSearchResult(r, i, false)} className="px-2.5 py-1.5 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-[11px] font-semibold rounded-lg">
+                                  + Wishlist
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <p className="text-[11px] text-slate-400 text-center">
+                Can't find it? <button onClick={() => { close(); onManualAdd({ title: searchTitle, author: searchAuthor }); }} className="underline font-semibold">Enter the details yourself</button>
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
