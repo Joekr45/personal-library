@@ -20,7 +20,7 @@ function bestMatch(candidates, name) {
   return null;
 }
 
-function Cover({ url, title, author, muted }) {
+export function Cover({ url, title, author, muted }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
   return (

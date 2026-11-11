@@ -60,3 +60,11 @@ api.searchAuthors = (q) => request('GET', `/api/authors/search?${new URLSearchPa
 api.authorWorks = (key) => request('GET', `/api/authors/${encodeURIComponent(key)}/works`);
 api.setAuthorBookHidden = (key, bookId, hidden) =>
   request('PUT', `/api/authors/${encodeURIComponent(key)}/hidden`, { bookId, hidden });
+
+// Settings and series (Hardcover)
+api.getSettings = () => request('GET', '/api/settings');
+api.connectHardcover = (token) => request('PUT', '/api/settings/hardcover', { token }).then(d => d.hardcover);
+api.disconnectHardcover = () => request('DELETE', '/api/settings/hardcover').then(d => d.hardcover);
+api.findSeries = ({ isbn, title, author }) =>
+  request('GET', `/api/series/find?${new URLSearchParams({ isbn: isbn || '', title: title || '', author: author || '' })}`);
+api.seriesBooks = (id) => request('GET', `/api/series/${encodeURIComponent(id)}/books`);

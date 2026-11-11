@@ -270,8 +270,9 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
     const book = {
       workTitle: result.title,
       author: result.authors?.length ? result.authors.join(', ') : 'Unknown Author',
-      series: null,
-      seriesNumber: null,
+      series: result.series || null,
+      seriesNumber: result.seriesNumber ?? null,
+      hardcoverSeriesId: result.hardcoverSeriesId || null,
       owned,
       readingStatus: 'Unread',
       shelfLocation: owned ? 'Living Room Shelf' : '',
