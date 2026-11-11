@@ -375,5 +375,121 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
       return sorted.length ? { options: sorted, languages, workKey: key || null } : null;
     });
 
-  return { lookupIsbn, searchBooks, getCoverOptions };
+  // ---------- authors ----------
+
+  // Find authors by name. Several people can share a name, so return a short list to pick from.
+  const searchAuthors = (name) => cached(`authors:${name.toLowerCase()}`, async () => {
+    const data = await getJson(`https://openlibrary.org/search/authors.json?q=${encodeURIComponent(name)}&limit=10`);
+    return (data?.docs || [])
+      .filter(d => d.key && d.name)
+      .map(d => ({
+        key: String(d.key).replace('/authors/', ''),
+        name: d.name,
+        birthDate: d.birth_date || null,
+        deathDate: d.death_date || null,
+        topWork: d.top_work || null,
+        workCount: d.work_count || 0
+      }))
+      .sort((a, b) => b.workCount - a.workCount);
+  });
+
+  // Titles that are not really "a book by this author": box sets, study guides, summaries...
+  const JUNK_TITLE = /\b(box(ed)?[\s-]*set|\d+[\s-]*books?[\s-]*(set|collection|bundle)|books?\s+\d+\s*[-–&]\s*\d+|(study|reading|reader'?s|teacher'?s)\s+guide|summary|summaries|sparknotes|cliff'?s?\s*notes|analysis of|unofficial|trivia|quiz|workbook|colou?ring book|calendar|(audio|e)[\s-]?book|unabridged|large print)\b/i;
+
+  // The main part of a title, used to spot the same book listed twice
+  // ("Fall of Giants: Book One of the Century Trilogy" -> "fallofgiants").
+  const mainTitleKey = (title) => normalizeTitle(String(title || '').split(/\s*[:(\[]\s*|\s+[-–—]\s+/)[0]);
+
+  const isEnglishOrUnknown = (langs) => !Array.isArray(langs) || langs.length === 0 || langs.includes('eng');
+
+  // Everything an author wrote, one entry per book, newest releases included.
+  const authorWorks = (authorKey) => cached(`works:${authorKey}`, async () => {
+    const author = await getJson(`https://openlibrary.org/authors/${authorKey}.json`);
+    const name = author?.name || author?.personal_name || '';
+
+    const fields = 'key,title,subtitle,first_publish_year,cover_i,edition_count,language,author_key,author_name';
+    const pages = await Promise.all([1, 2].map(page =>
+      getJson(`https://openlibrary.org/search.json?author_key=${encodeURIComponent(authorKey)}&fields=${fields}&limit=500&page=${page}&sort=old`)
+    ));
+    const docs = pages.flatMap(p => p?.docs || []);
+
+    const google = name
+      ? await getJson(googleUrl(`inauthor:"${name}"`, '&maxResults=40&orderBy=newest&printType=books'))
+      : null;
+
+    const books = new Map();
+    const addBook = (entry) => {
+      if (!entry.title || JUNK_TITLE.test(entry.title) || JUNK_TITLE.test(entry.subtitle || '')) return;
+      const key = mainTitleKey(entry.title);
+      if (!key) return;
+      const existing = books.get(key);
+      if (!existing) {
+        books.set(key, entry);
+        return;
+      }
+      // Same book listed twice: keep the best details from both.
+      if (!existing.sources.includes(entry.sources[0])) existing.sources.push(entry.sources[0]);
+      if (entry.year && (!existing.year || entry.year < existing.year)) existing.year = entry.year;
+      if (entry.editionCount > existing.editionCount) {
+        existing.cover = entry.cover || existing.cover;
+        existing.workKey = entry.workKey || existing.workKey;
+        existing.title = entry.title.length < existing.title.length ? entry.title : existing.title;
+      }
+      existing.editionCount = Math.max(existing.editionCount, entry.editionCount);
+      existing.cover = existing.cover || entry.cover;
+      existing.workKey = existing.workKey || entry.workKey;
+      existing.isbn13 = existing.isbn13 || entry.isbn13;
+      existing.coAuthors = existing.coAuthors.length ? existing.coAuthors : entry.coAuthors;
+    };
+
+    for (const d of docs) {
+      // Translations that Open Library lists as separate works (no English edition) are skipped;
+      // they appear as editions when choosing a cover instead.
+      if (!isEnglishOrUnknown(d.language)) continue;
+      addBook({
+        id: String(d.key || '').replace('/works/', ''),
+        workKey: d.key || null,
+        title: d.title,
+        subtitle: d.subtitle || null,
+        year: d.first_publish_year ? String(d.first_publish_year) : null,
+        cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
+        editionCount: d.edition_count || 0,
+        isbn13: null,
+        coAuthors: (d.author_name || []).filter(n => n !== name),
+        sources: ['Open Library']
+      });
+    }
+
+    const surname = (n) => String(n || '').toLowerCase().split(/\s+/).pop();
+    for (const item of google?.items || []) {
+      const v = item.volumeInfo || {};
+      // Only books actually credited to this author, in English
+      if (!(v.authors || []).some(a => surname(a) === surname(name) && a.toLowerCase().includes(name.toLowerCase().split(/\s+/)[0]))) continue;
+      if (v.language && v.language !== 'en') continue;
+      addBook({
+        id: `g-${item.id}`,
+        workKey: null,
+        title: v.title,
+        subtitle: v.subtitle || null,
+        year: v.publishedDate ? String(v.publishedDate).slice(0, 4) : null,
+        cover: googleCover(v.imageLinks),
+        editionCount: 0,
+        isbn13: (v.industryIdentifiers || []).find(i => i.type === 'ISBN_13')?.identifier || null,
+        coAuthors: (v.authors || []).filter(a => surname(a) !== surname(name)),
+        sources: ['Google Books']
+      });
+    }
+
+    const list = Array.from(books.values())
+      // A book only one obscure catalog record knows about, with no year, is usually noise.
+      .filter(b => b.year || b.cover || b.editionCount > 1 || b.sources.length > 1)
+      .sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0));
+    if (!name && list.length === 0) return null;
+    return {
+      author: { key: authorKey, name, birthDate: author?.birth_date || null, deathDate: author?.death_date || null },
+      books: list
+    };
+  });
+
+  return { lookupIsbn, searchBooks, getCoverOptions, searchAuthors, authorWorks };
 }

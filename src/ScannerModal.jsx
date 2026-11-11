@@ -60,8 +60,10 @@ const TABS = [
 ];
 
 // The "Add a book" window: scan a barcode, type an ISBN, or search by title/author.
-export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onManualAdd, coverThemes }) {
-  const [mode, setMode] = useState('camera');
+// initialBook: open straight to the confirmation card for this book (e.g. from the author page);
+// the window then closes after the book is added.
+export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onManualAdd, coverThemes, initialBook = null }) {
+  const [mode, setMode] = useState(initialBook ? 'search' : 'camera');
 
   // camera
   const videoRef = useRef(null);
@@ -93,6 +95,11 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
 
   const booksRef = useRef(books);
   booksRef.current = books;
+
+  useEffect(() => {
+    if (initialBook) showResult({ ...initialBook, fromSearch: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- camera ----------
   const stopCamera = () => {
@@ -288,6 +295,10 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
     if (saved) {
       // Keep a copy of the chosen cover on the server (in the background).
       if (coverChoice) onSaveCover(saved.id, coverChoice.imageData ? { imageData: coverChoice.imageData } : { url: coverChoice.url }, { quiet: true });
+      if (initialBook) {
+        close();
+        return;
+      }
       setLastAdded({ title: book.workTitle, owned });
       setIsbnInput('');
       resetResult();
@@ -511,7 +522,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
 
           {result && (
             <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3">
-              {mode === 'search' && (
+              {mode === 'search' && !initialBook && (
                 <button onClick={resetResult} className="text-xs font-semibold text-slate-600 flex items-center gap-1">
                   <ArrowLeft className="w-3.5 h-3.5" /> Back to results
                 </button>

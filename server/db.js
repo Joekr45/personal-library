@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -53,6 +53,17 @@ function migrate(db) {
           updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX books_user ON books(user_id);
+      `);
+    }
+    if (current < 2) {
+      db.exec(`
+        -- Books someone chose to hide from an author's bibliography (box sets, junk entries...).
+        CREATE TABLE hidden_author_books (
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          author_key TEXT NOT NULL,
+          book_id    TEXT NOT NULL,
+          PRIMARY KEY (user_id, author_key, book_id)
+        );
       `);
     }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);

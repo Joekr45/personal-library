@@ -225,6 +225,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       return { status: 200, body: result || { options: [], languages: [], workKey: null } };
     },
 
+    // Find authors by name (several people can share a name).
+    'GET /api/authors/search': async (req) => {
+      requireUser(req);
+      const q = cleanText(new URL(req.url, 'http://localhost').searchParams.get('q') || '', 200);
+      if (!q) throw new HttpError(400, 'Enter an author\'s name.');
+      return { status: 200, body: { authors: await lookup.searchAuthors(q) } };
+    },
+
     'GET /api/books': (req) => {
       const user = requireUser(req);
       const rows = db.prepare('SELECT id, data FROM books WHERE user_id = ? ORDER BY created_at DESC, rowid DESC').all(user.id);
@@ -250,6 +258,31 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
     if (code.kind === 'upc') return { status: 200, body: { kind: 'upc', code: code.code } };
     const book = await lookup.lookupIsbn(code.isbn13, code.isbn10);
     return { status: 200, body: { kind: 'isbn', isbn13: code.isbn13, isbn10: code.isbn10, found: Boolean(book), book } };
+  };
+
+  // An author's bibliography, with this person's hidden entries marked: /api/authors/<key>/works
+  const authorWorks = async (req, authorKey) => {
+    const user = requireUser(req);
+    const result = await lookup.authorWorks(authorKey);
+    if (!result) throw new HttpError(404, 'Could not load that author\'s books. Please try again in a moment.');
+    const hidden = new Set(
+      db.prepare('SELECT book_id FROM hidden_author_books WHERE user_id = ? AND author_key = ?').all(user.id, authorKey).map(r => r.book_id)
+    );
+    return { status: 200, body: { ...result, books: result.books.map(b => ({ ...b, hidden: hidden.has(b.id) })) } };
+  };
+
+  // Hide or un-hide one entry in an author's bibliography: /api/authors/<key>/hidden { bookId, hidden }
+  const setAuthorBookHidden = async (req, authorKey) => {
+    const user = requireUser(req);
+    const body = await readJson(req);
+    const bookId = cleanText(body.bookId, 100);
+    if (!bookId) throw new HttpError(400, 'Which book?');
+    if (body.hidden === false) {
+      db.prepare('DELETE FROM hidden_author_books WHERE user_id = ? AND author_key = ? AND book_id = ?').run(user.id, authorKey, bookId);
+    } else {
+      db.prepare('INSERT OR IGNORE INTO hidden_author_books (user_id, author_key, book_id) VALUES (?, ?, ?)').run(user.id, authorKey, bookId);
+    }
+    return { status: 200, body: { ok: true } };
   };
 
   // Routes with a book id in the address: /api/books/<id>
@@ -363,11 +396,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
         const bookMatch = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})$/);
         const codeMatch = pathname.match(/^\/api\/lookup\/isbn\/([0-9Xx-]{1,20})$/);
         const coverUpload = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})\/cover$/);
+        const authorRoute = pathname.match(/^\/api\/authors\/(OL\d+A)\/(works|hidden)$/);
         const coverFile = pathname.match(/^\/api\/covers\/([0-9a-f-]{36}\.(?:jpg|png|webp|gif))$/);
         if (coverFile && req.method === 'GET') return serveCover(req, res, coverFile[1]);
         let result;
         if (route) result = await route(req);
         else if (coverUpload && req.method === 'POST') result = await saveBookCover(req, coverUpload[1]);
+        else if (authorRoute && authorRoute[2] === 'works' && req.method === 'GET') result = await authorWorks(req, authorRoute[1]);
+        else if (authorRoute && authorRoute[2] === 'hidden' && req.method === 'PUT') result = await setAuthorBookHidden(req, authorRoute[1]);
         else if (codeMatch && req.method === 'GET') result = await lookupCode(req, codeMatch[1]);
         else if (bookMatch && bookRoutes[req.method]) result = await bookRoutes[req.method](req, bookMatch[1]);
         else throw new HttpError(404, 'Not found.');

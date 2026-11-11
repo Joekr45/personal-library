@@ -54,3 +54,9 @@ api.getCoverOptions = ({ isbn, workKey, title, author, language }) =>
 // choice: { url } to save a picture from the web, or { imageData } for a photo from the phone
 api.saveCover = (bookId, choice) =>
   request('POST', `/api/books/${encodeURIComponent(bookId)}/cover`, choice).then(d => d.book);
+
+// Authors
+api.searchAuthors = (q) => request('GET', `/api/authors/search?${new URLSearchParams({ q })}`).then(d => d.authors);
+api.authorWorks = (key) => request('GET', `/api/authors/${encodeURIComponent(key)}/works`);
+api.setAuthorBookHidden = (key, bookId, hidden) =>
+  request('PUT', `/api/authors/${encodeURIComponent(key)}/hidden`, { bookId, hidden });
