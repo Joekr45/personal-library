@@ -30,8 +30,11 @@ import {
   Lock,
   Eye,
   EyeOff,
-  ExternalLink
+  ExternalLink,
+  Pencil
 } from 'lucide-react';
+import { api } from './src/api.js';
+import EditBookModal from './src/EditBookModal.jsx';
 
 // Fallback background palettes when an image is loading or unavailable
 const COVER_THEMES = [
@@ -43,55 +46,19 @@ const COVER_THEMES = [
   { bg: 'from-cyan-950 via-sky-950 to-black', accent: 'border-cyan-400/40 text-cyan-200', tag: 'bg-cyan-500/20 text-cyan-300' }
 ];
 
-const INITIAL_USERS = [
-  {
-    id: 'usr-1',
-    email: 'admin@library.local',
-    password: 'password123',
-    displayName: 'Head Librarian',
-    role: 'Owner',
-    color: 'from-orange-500 to-amber-500'
-  }
-];
-
 export default function App() {
-// Authentication State
-  const [users, setUsers] = useState(INITIAL_USERS);
+  // Authentication state. The server remembers who is signed in (with a secure cookie),
+  // so the browser no longer stores passwords or anyone's books.
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [hasUsers, setHasUsers] = useState(true);
 
-  useEffect(() => {
-    fetch('/api/users')
-      .then(res => res.json())
-      .then(serverUsers => {
-        if (Array.isArray(serverUsers) && serverUsers.length > 0) {
-          setUsers(serverUsers);
-        }
-      })
-      .catch(err => console.warn('Could not sync users from server:', err));
-  }, []);
-useEffect(() => {
-    fetch('/api/library')
-      .then(res => res.json())
-      .then(serverLib => {
-        if (serverLib && typeof serverLib === 'object' && Object.keys(serverLib).length > 0) {
-          setUserLibraries(prev => ({ ...prev, ...serverLib }));
-        }
-        setIsLibraryLoaded(true);
-      })
-      .catch(err => {
-        console.warn('Could not sync library from server:', err);
-        setIsLibraryLoaded(true);
-      });
-  }, []);
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('personal_library_current_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  // The signed-in user's books, loaded from the server.
+  const [books, setBooks] = useState([]);
+  const [isLibraryLoaded, setIsLibraryLoaded] = useState(false);
+  const [libraryError, setLibraryError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
 
-  const [userLibraries, setUserLibraries] = useState(() => {
-    const saved = localStorage.getItem('personal_library_data');
-return saved ? JSON.parse(saved) : {};
-  });
-const [isLibraryLoaded, setIsLibraryLoaded] = useState(false);
   // Auth Screen Form State
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
   const [authEmail, setAuthEmail] = useState('');
@@ -99,38 +66,96 @@ const [isLibraryLoaded, setIsLibraryLoaded] = useState(false);
   const [authDisplayName, setAuthDisplayName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
 
-  // Persist auth and library data to localStorage
+  // On first load: ask the server whether we're already signed in.
   useEffect(() => {
-    localStorage.setItem('personal_library_users', JSON.stringify(users));
-  }, [users]);
+    api.getSession()
+      .then(({ user, hasUsers }) => {
+        setCurrentUser(user);
+        setHasUsers(hasUsers);
+        if (!hasUsers) setAuthMode('register');
+      })
+      .catch(() => setAuthError('Could not reach the server. Please refresh the page.'))
+      .finally(() => setIsCheckingSession(false));
+    // Clean up data left in the browser by the old version of the app.
+    ['personal_library_users', 'personal_library_current_user', 'personal_library_data']
+      .forEach(key => localStorage.removeItem(key));
+  }, []);
 
+  // Whenever someone signs in, load their books.
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('personal_library_current_user', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('personal_library_current_user');
+    if (!currentUser) {
+      setBooks([]);
+      setIsLibraryLoaded(false);
+      return;
     }
+    setLibraryError(null);
+    api.listBooks()
+      .then(setBooks)
+      .catch(err => setLibraryError(err.message))
+      .finally(() => setIsLibraryLoaded(true));
   }, [currentUser]);
 
- useEffect(() => {
-if (!isLibraryLoaded || !currentUser || !userLibraries || !userLibraries[currentUser.id]) return;
-    localStorage.setItem('personal_library_data', JSON.stringify(userLibraries));
-    fetch('/api/library', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userLibraries)
-    }).catch(err => console.warn('Could not save library to server:', err));
-}, [userLibraries, currentUser, isLibraryLoaded]);
-
-  const books = currentUser ? userLibraries[currentUser.id] || [] : [];
-  const setBooksForCurrent = (updater) => {
-    if (!currentUser) return;
-    setUserLibraries(prev => ({
-      ...prev,
-      [currentUser.id]: typeof updater === 'function' ? updater(prev[currentUser.id] || []) : updater
-    }));
+  // If the server says our sign-in expired, go back to the sign-in screen.
+  const handleApiError = (err) => {
+    if (err.status === 401) {
+      setCurrentUser(null);
+      setAuthError('Your session ended. Please sign in again.');
+      return;
+    }
+    setSaveError(err.message || 'Could not save your change.');
   };
+
+  // Book changes: update the screen right away, then save to the server.
+  // If saving fails, the change is undone and an error is shown.
+  const addBook = async (book) => {
+    const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    setBooks(prev => [{ ...book, id: tempId }, ...prev]);
+    try {
+      const saved = await api.createBook(book);
+      setBooks(prev => prev.map(b => (b.id === tempId ? saved : b)));
+      return saved;
+    } catch (err) {
+      setBooks(prev => prev.filter(b => b.id !== tempId));
+      handleApiError(err);
+      return null;
+    }
+  };
+
+  const updateBook = async (bookId, changes) => {
+    const before = books.find(b => b.id === bookId);
+    if (!before) return null;
+    setBooks(prev => prev.map(b => (b.id === bookId ? { ...b, ...changes } : b)));
+    setSelectedBook(prev => (prev && prev.id === bookId ? { ...prev, ...changes } : prev));
+    try {
+      const saved = await api.updateBook(bookId, changes);
+      setBooks(prev => prev.map(b => (b.id === bookId ? saved : b)));
+      return saved;
+    } catch (err) {
+      setBooks(prev => prev.map(b => (b.id === bookId ? before : b)));
+      setSelectedBook(prev => (prev && prev.id === bookId ? before : prev));
+      handleApiError(err);
+      return null;
+    }
+  };
+
+  const removeBook = async (bookId) => {
+    const before = books;
+    setBooks(prev => prev.filter(b => b.id !== bookId));
+    try {
+      await api.deleteBook(bookId);
+    } catch (err) {
+      setBooks(before);
+      handleApiError(err);
+    }
+  };
+
+  // Keep the latest values in refs so the camera scanning loop (which runs on a timer)
+  // always sees the current book list instead of the list from when the camera opened.
+  const booksRef = useRef(books);
+  booksRef.current = books;
+  const isLookingUpRef = useRef(false);
 
   // View state
   const [activeSection, setActiveSection] = useState('all');
@@ -167,7 +192,11 @@ if (!isLibraryLoaded || !currentUser || !userLibraries || !userLibraries[current
   const [manualSeriesNum, setManualSeriesNum] = useState('');
   const [manualIsbn, setManualIsbn] = useState('');
   const [manualFormat, setManualFormat] = useState('Hardcover');
-  const [manualShelf, setManualShelf] = useState('Main Bookshelf');
+  const [manualShelf, setManualShelf] = useState('Living Room Shelf');
+  const [manualOwned, setManualOwned] = useState(true);
+
+  // Edit Book Details modal
+  const [editingBook, setEditingBook] = useState(null);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -216,78 +245,45 @@ if (!isLibraryLoaded || !currentUser || !userLibraries || !userLibraries[current
   };
 
   // Auth Handlers
-  const handleAuthSubmit = (e) => {
+  const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError('');
 
     const cleanEmail = authEmail.trim().toLowerCase();
-    const cleanPassword = authPassword.trim();
-
-    if (!cleanEmail || !cleanPassword) {
+    if (!cleanEmail || !authPassword) {
       setAuthError('Please fill out all required fields.');
       return;
     }
+    if (authMode === 'register' && authPassword.length < 8) {
+      setAuthError('Password must be at least 8 characters long.');
+      return;
+    }
 
-    if (authMode === 'login') {
-      fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password: cleanPassword })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.error || !data.user) {
-            setAuthError(data.error || 'Invalid email address or password.');
-            return;
-          }
-          setCurrentUser(data.user);
-          setAuthEmail('');
-          setAuthPassword('');
-        })
-        .catch(err => {
-          console.error('Login failed:', err);
-          setAuthError('Could not connect to server. Please try again.');
-      });
-  } else {
-      const exists = users.some(u => u.email.toLowerCase() === cleanEmail);
-      if (exists) {
-        setAuthError('An account with this email address already exists.');
-        return;
-      }
-      if (cleanPassword.length < 6) {
-        setAuthError('Password must be at least 6 characters long.');
-        return;
-      }
-
-      const newId = 'usr-' + Date.now();
-      const newUser = {
-        id: newId,
-        email: cleanEmail,
-        password: cleanPassword,
-        displayName: authDisplayName.trim() || cleanEmail.split('@')[0],
-        role: 'Member',
-        color: ['from-blue-600 to-indigo-600', 'from-emerald-600 to-teal-600', 'from-purple-600 to-pink-600', 'from-rose-600 to-orange-600'][users.length % 4]
-      };
-
-      setUsers(prev => [...prev, newUser]);
-      fetch('/api/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newUser)
-    }).catch(err => console.error('Failed to sync registration to server:', err));
-      setUserLibraries(prev => ({ ...prev, [newId]: [] }));
-      setCurrentUser(newUser);
+    setIsAuthSubmitting(true);
+    try {
+      const user = authMode === 'login'
+        ? await api.login(cleanEmail, authPassword)
+        : await api.register(cleanEmail, authPassword, authDisplayName.trim());
+      setHasUsers(true);
+      setCurrentUser(user);
       setAuthEmail('');
       setAuthPassword('');
       setAuthDisplayName('');
+    } catch (err) {
+      setAuthError(err.message || 'Could not connect to the server. Please try again.');
+    } finally {
+      setIsAuthSubmitting(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await api.logout().catch(() => {});
     setCurrentUser(null);
     setSelectedBook(null);
     setIsScanModalOpen(false);
     setIsManualAddOpen(false);
+    setActiveSection('all');
+    setSearchQuery('');
   };
 
   // Real-time lookup for ISBN
@@ -295,13 +291,15 @@ if (!isLibraryLoaded || !currentUser || !userLibraries || !userLibraries[current
     const raw = (rawIsbn || scannedIsbnInput).trim().replace(/[^0-9X]/gi, '');
     if (!raw) return;
    if (raw.length !== 10 && raw.length !== 12 && raw.length !== 13) return;
-    const existing = books.find(b =>
-      b.editions.some(e => e.isbn.replace(/[^0-9X]/gi, '') === raw)
+    const existing = booksRef.current.find(b =>
+      (b.editions || []).some(e => String(e.isbn || '').replace(/[^0-9X]/gi, '') === raw)
     );
     if (existing) {
       setDuplicateAlert({
         book: existing,
-        message: `You already own this book: "${existing.workTitle}" by ${existing.author} on shelf "${existing.shelfLocation}".`
+        message: existing.owned === false
+          ? `"${existing.workTitle}" by ${existing.author} is already on your wishlist.`
+          : `You already own this book: "${existing.workTitle}" by ${existing.author} on shelf "${existing.shelfLocation || 'Living Room Shelf'}".`
       });
       setScanResult(null);
       return;
@@ -309,6 +307,7 @@ if (!isLibraryLoaded || !currentUser || !userLibraries || !userLibraries[current
 
     setDuplicateAlert(null);
     setIsLookingUpIsbn(true);
+    isLookingUpRef.current = true;
 try {
  const cleanIsbn = raw.replace(/[^0-9X]/gi, '');
     
@@ -432,6 +431,7 @@ try {
       console.warn('Network lookup caught safely:', err);
     } finally {
       setIsLookingUpIsbn(false);
+      isLookingUpRef.current = false;
     }
   };
 
@@ -469,10 +469,10 @@ try {
 
         // Create a fast lookup Set of normalized owned titles and ISBNs
         const ownedTitleSet = new Set(
-          (books || []).map(b => (b.workTitle || b.title || '').trim().toLowerCase())
+          (books || []).filter(b => b.owned !== false).map(b => (b.workTitle || b.title || '').trim().toLowerCase())
         );
         const ownedIsbnSet = new Set(
-          (books || []).flatMap(b => (b.editions || []).map(e => (e.isbn || '').trim()))
+          (books || []).filter(b => b.owned !== false).flatMap(b => (b.editions || []).map(e => (e.isbn || '').trim()))
         );
 
        // Helper to strip leading articles ("The", "A", "An") and symbols for matching
@@ -642,11 +642,11 @@ try {
 
   const counts = useMemo(() => {
     return {
-      all: books.filter(b => b.owned).length,
-      reading: books.filter(b => b.readingStatus === 'Reading' && b.owned).length,
-      unread: books.filter(b => b.readingStatus === 'Unread' && b.owned).length,
-      completed: books.filter(b => b.readingStatus === 'Completed' && b.owned).length,
-      wishlist: books.filter(b => b.isWishlist || (!b.owned && b.isWishlist)).length,
+      all: books.filter(b => b.owned !== false).length,
+      reading: books.filter(b => b.readingStatus === 'Reading' && b.owned !== false).length,
+      unread: books.filter(b => b.readingStatus === 'Unread' && b.owned !== false).length,
+      completed: books.filter(b => b.readingStatus === 'Completed' && b.owned !== false).length,
+      wishlist: books.filter(b => b.owned === false).length,
       authors: libraryAuthors.length,
       series: Array.from(new Set(books.map(b => b.series).filter(Boolean))).length
     };
@@ -656,18 +656,19 @@ try {
     return books.filter(b => {
       const q = searchQuery.toLowerCase();
       const matchesSearch =
-        b.workTitle.toLowerCase().includes(q) ||
-        b.author.toLowerCase().includes(q) ||
+        (b.workTitle || '').toLowerCase().includes(q) ||
+        (b.author || '').toLowerCase().includes(q) ||
         (b.series && b.series.toLowerCase().includes(q)) ||
-        b.editions.some(e => e.isbn.includes(q));
+        (b.editions || []).some(e => String(e.isbn || '').toLowerCase().includes(q));
 
       if (!matchesSearch) return false;
 
-      if (activeSection === 'all') return b.owned;
-      if (activeSection === 'reading') return b.readingStatus === 'Reading' && b.owned;
-      if (activeSection === 'unread') return b.readingStatus === 'Unread' && b.owned;
-      if (activeSection === 'completed') return b.readingStatus === 'Completed' && b.owned;
-      if (activeSection === 'wishlist') return b.isWishlist || !b.owned;
+      // "owned: false" means the book is on the wishlist (wanted, not on the shelf yet).
+      if (activeSection === 'all') return b.owned !== false;
+      if (activeSection === 'reading') return b.readingStatus === 'Reading' && b.owned !== false;
+      if (activeSection === 'unread') return b.readingStatus === 'Unread' && b.owned !== false;
+      if (activeSection === 'completed') return b.readingStatus === 'Completed' && b.owned !== false;
+      if (activeSection === 'wishlist') return b.owned === false;
       if (activeSection === 'authors' && selectedAuthor) return b.author === selectedAuthor;
       return true;
     });
@@ -689,7 +690,7 @@ try {
 
     scanIntervalRef.current = setInterval(async () => {
       const video = videoRef.current;
-      if (!video || video.readyState < 2 || isLookingUpIsbn) return;
+      if (!video || video.readyState < 2 || isLookingUpRef.current) return;
 
       try {
         if (barcodeDetectorRef.current) {
@@ -784,17 +785,15 @@ try {
     return () => stopCameraStream();
   }, [isScanModalOpen, scanMode]);
 
-  const toggleWishlist = (bookId, e) => {
-    e?.stopPropagation();
-    setBooksForCurrent(prev =>
-      prev.map(b => (b.id === bookId ? { ...b, isWishlist: !b.isWishlist } : b))
-    );
-  };
+  // Move a book between "on my shelves" (owned) and "wishlist" (wanted).
+  const setOwned = (bookId, owned) => updateBook(bookId, { owned });
 
   const deleteBook = (bookId, e) => {
     e?.stopPropagation();
-    if (confirm('Are you sure you want to remove this book from your shelves?')) {
-      setBooksForCurrent(prev => prev.filter(b => b.id !== bookId));
+    const book = books.find(b => b.id === bookId);
+    const where = book?.owned === false ? 'your wishlist' : 'your shelves';
+    if (confirm(`Remove this book from ${where}?`)) {
+      removeBook(bookId);
       if (selectedBook?.id === bookId) setSelectedBook(null);
     }
   };
@@ -802,7 +801,6 @@ try {
   const handleAddScannedBook = () => {
     if (!scanResult) return;
     const newBook = {
-      id: 'book-' + Date.now(),
       workTitle: scanResult.workTitle,
       author: scanResult.author,
       series: scanResult.series,
@@ -812,9 +810,9 @@ try {
       shelfLocation: 'Living Room Shelf',
       customCoverUrl: scanResult.coverUrl,
       theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
-      editions: [scanResult.edition]
+      editions: [{ id: `ed-${Date.now()}`, ...scanResult.edition }]
     };
-    setBooksForCurrent(prev => [newBook, ...prev]);
+    addBook(newBook);
     stopCameraStream();
     setIsScanModalOpen(false);
     setScanResult(null);
@@ -830,14 +828,13 @@ try {
     const cover = cleanIsbn !== 'Pending Scan' ? `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg` : null;
 
     const newBook = {
-      id: 'book-' + Date.now(),
       workTitle: manualTitle.trim(),
       author: manualAuthor.trim(),
       series: manualSeries.trim() || null,
-      seriesNumber: manualSeriesNum ? parseInt(manualSeriesNum, 10) : null,
-      owned: true,
+      seriesNumber: manualSeriesNum ? parseFloat(manualSeriesNum) : null,
+      owned: manualOwned,
       readingStatus: 'Unread',
-      shelfLocation: manualShelf.trim() || 'Living Room Shelf',
+      shelfLocation: manualOwned ? (manualShelf.trim() || 'Living Room Shelf') : '',
       customCoverUrl: cover,
       theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
       editions: [{
@@ -851,13 +848,43 @@ try {
       }]
     };
 
-    setBooksForCurrent(prev => [newBook, ...prev]);
+    addBook(newBook);
     setManualTitle('');
     setManualAuthor('');
     setManualSeries('');
     setManualSeriesNum('');
     setManualIsbn('');
+    setManualOwned(true);
     setIsManualAddOpen(false);
+  };
+
+  // Add a book found in the author search, either to the shelves (owned) or the wishlist.
+  const addCatalogBook = (item, owned) => {
+    addBook({
+      workTitle: item.title,
+      author: item.author,
+      series: null,
+      seriesNumber: null,
+      owned,
+      readingStatus: 'Unread',
+      shelfLocation: owned ? 'Living Room Shelf' : '',
+      customCoverUrl: item.coverUrl,
+      theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
+      editions: [{
+        id: `ed-${Date.now()}`,
+        title: item.title,
+        language: 'English',
+        format: 'Paperback',
+        isbn: item.isbn || 'Pending Scan',
+        published: item.publishedDate,
+        publisher: 'Publisher'
+      }]
+    });
+    // Instantly show the new status in the search results
+    setViewingGlobalAuthor(prev => prev ? ({
+      ...prev,
+      books: prev.books.map(b => b.id === item.id ? { ...b, isOwned: owned, isWanted: !owned } : b)
+    }) : null);
   };
 
   const navigateToAuthor = (authorName, e) => {
@@ -868,6 +895,15 @@ try {
     setCurrentPage(1);
     if (selectedBook) setSelectedBook(null);
   };
+
+  // While we ask the server whether someone is already signed in
+  if (isCheckingSession) {
+    return (
+      <div className="min-h-screen w-full bg-[#0f1117] flex items-center justify-center">
+        <RefreshCw className="w-6 h-6 text-orange-400 animate-spin" />
+      </div>
+    );
+  }
 
   // GATEWAY: MANDATORY LOGIN / REGISTRATION SCREEN
   if (!currentUser) {
@@ -956,7 +992,8 @@ try {
                   required
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder={authMode === 'register' ? 'At least 8 characters' : '••••••••'}
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
                   className="w-full pl-10 pr-10 py-2.5 bg-slate-800/90 text-xs text-white placeholder-slate-500 rounded-xl border border-slate-700 focus:outline-none focus:border-orange-500 transition-colors font-mono"
                 />
                 <button
@@ -978,17 +1015,20 @@ try {
 
             <button
               type="submit"
-              className="w-full py-3 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-[0.99] text-white text-xs font-bold rounded-xl shadow-lg shadow-orange-500/25 transition-all mt-2"
+              disabled={isAuthSubmitting}
+              className="w-full py-3 disabled:opacity-60 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-[0.99] text-white text-xs font-bold rounded-xl shadow-lg shadow-orange-500/25 transition-all mt-2"
             >
-              {authMode === 'login' ? 'Sign In to My Library' : 'Create My Account & Enter'}
+              {isAuthSubmitting ? 'One moment…' : authMode === 'login' ? 'Sign In to My Library' : 'Create My Account & Enter'}
             </button>
           </form>
 
-          <div className="pt-4 border-t border-slate-800/80 text-center">
-            <p className="text-[11px] text-slate-500">
-              First time running? Use default owner: <code className="text-orange-400">admin@library.local</code> / <code className="text-orange-400">password123</code> or register any email above.
-            </p>
-          </div>
+          {!hasUsers && (
+            <div className="pt-4 border-t border-slate-800/80 text-center">
+              <p className="text-[11px] text-slate-400">
+                Welcome! No accounts exist yet. The first account you create becomes the library's owner.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1360,41 +1400,25 @@ try {
                     <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-semibold rounded-md border border-emerald-200">
                       <span>✓</span> In Collection
                     </div>
+                  ) : item.isWanted ? (
+                    <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-rose-50 text-rose-700 text-[10px] font-semibold rounded-md border border-rose-200">
+                      <Heart className="w-3 h-3" /> On Wishlist
+                    </div>
                   ) : (
-                    <button
-                      onClick={() => {
-                        const newBook = {
-                          id: 'book-' + Date.now() + '-' + Math.random(),
-                          workTitle: item.title,
-                          author: item.author,
-                          series: null,
-                          seriesNumber: null,
-                          owned: true,
-                          readingStatus: 'Unread',
-                          shelfLocation: 'Living Room Shelf',
-                          customCoverUrl: item.coverUrl,
-                          theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
-                          editions: [{
-                            id: `ed-${Date.now()}`,
-                            title: item.title,
-                            language: 'English',
-                            format: 'Paperback',
-                            isbn: item.isbn || 'Pending Scan',
-                            published: item.publishedDate,
-                            publisher: 'Publisher'
-                          }]
-                        };
-                        setBooksForCurrent(prev => [newBook, ...prev]);
-                        // Instantly flip this work to owned in the local view
-                        setViewingGlobalAuthor(prev => prev ? ({
-                          ...prev,
-                          books: prev.books.map(b => b.id === item.id ? { ...b, isOwned: true } : b)
-                        }) : null);
-                      }}
-                      className="mt-2 px-2.5 py-1 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-semibold rounded-lg shadow-2xs cursor-pointer transition-colors"
-                    >
-                      + Add to My Shelf
-                    </button>
+                    <div className="flex gap-1.5 mt-2">
+                      <button
+                        onClick={() => addCatalogBook(item, true)}
+                        className="px-2.5 py-1 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-semibold rounded-lg shadow-2xs cursor-pointer transition-colors"
+                      >
+                        + I Own This
+                      </button>
+                      <button
+                        onClick={() => addCatalogBook(item, false)}
+                        className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-[10px] font-semibold rounded-lg cursor-pointer transition-colors"
+                      >
+                        + Wishlist
+                      </button>
+                    </div>
                  )}
                 </div>
               </div>
@@ -1470,7 +1494,6 @@ try {
                         book={book}
                         onClick={() => { setSelectedBook(book); setActiveEditionIndex(0); }}
                         onAuthorClick={(e) => navigateToAuthor(book.author, e)}
-                        onToggleWishlist={(e) => toggleWishlist(book.id, e)}
                       />
                     ))}
                   </div>
@@ -1525,7 +1548,6 @@ try {
                             book={book}
                             onClick={() => { setSelectedBook(book); setActiveEditionIndex(0); }}
                             onAuthorClick={(e) => navigateToAuthor(book.author, e)}
-                            onToggleWishlist={(e) => toggleWishlist(book.id, e)}
                           />
                         ))}
                       </div>
@@ -1613,7 +1635,6 @@ try {
                       book={book}
                       onClick={() => { setSelectedBook(book); setActiveEditionIndex(0); }}
                       onAuthorClick={(e) => navigateToAuthor(book.author, e)}
-                      onToggleWishlist={(e) => toggleWishlist(book.id, e)}
                     />
                   ))}
                 </div>
@@ -1694,6 +1715,14 @@ try {
               </span>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => setEditingBook(selectedBook)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-orange-600 rounded-lg hover:bg-orange-50 transition-colors"
+                  title="Edit book details"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Edit</span>
+                </button>
+                <button
                   onClick={(e) => deleteBook(selectedBook.id, e)}
                   className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
                   title="Remove Book"
@@ -1737,6 +1766,31 @@ try {
                     </div>
                   )}
 
+                  <div className="pt-1">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setOwned(selectedBook.id, true)}
+                        className={`py-2 text-xs rounded-xl font-semibold border transition-all flex items-center justify-center gap-1.5 ${
+                          selectedBook.owned !== false
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Library className="w-3.5 h-3.5" /> On My Shelf
+                      </button>
+                      <button
+                        onClick={() => setOwned(selectedBook.id, false)}
+                        className={`py-2 text-xs rounded-xl font-semibold border transition-all flex items-center justify-center gap-1.5 ${
+                          selectedBook.owned === false
+                            ? 'bg-rose-500 text-white border-rose-500 shadow-xs'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Heart className="w-3.5 h-3.5" /> Wishlist
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="pt-2">
                     <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
                       Reading Status for {currentUser.displayName}
@@ -1745,12 +1799,7 @@ try {
                       {['Unread', 'Reading', 'Completed'].map(status => (
                         <button
                           key={status}
-                          onClick={() => {
-                            setBooksForCurrent(prev =>
-                              prev.map(b => (b.id === selectedBook.id ? { ...b, readingStatus: status } : b))
-                            );
-                            setSelectedBook(prev => ({ ...prev, readingStatus: status }));
-                          }}
+                          onClick={() => updateBook(selectedBook.id, { readingStatus: status })}
                           className={`py-2 text-xs rounded-xl font-semibold border transition-all ${
                             selectedBook.readingStatus === status
                               ? 'bg-orange-500 text-white border-orange-500 shadow-xs'
@@ -1798,18 +1847,14 @@ try {
                             if (newIsbn && newIsbn.trim()) {
                               const clean = newIsbn.trim().replace(/[^0-9X]/gi, '');
                               const newCoverUrl = `https://covers.openlibrary.org/b/isbn/${clean}-L.jpg`;
-                              setBooksForCurrent(prev => prev.map(b => {
-                                if (b.id === selectedBook.id) {
-                                  const updatedEditions = [...b.editions];
-                                  updatedEditions[activeEditionIndex] = { ...updatedEditions[activeEditionIndex], isbn: clean };
-                                  return { ...b, editions: updatedEditions, customCoverUrl: newCoverUrl };
-                                }
-                                return b;
-                              }));
-                              setSelectedBook(prev => {
-                                const updatedEditions = [...prev.editions];
-                                updatedEditions[activeEditionIndex] = { ...updatedEditions[activeEditionIndex], isbn: clean };
-                                return { ...prev, editions: updatedEditions, customCoverUrl: newCoverUrl };
+                              const updatedEditions = [...selectedBook.editions];
+                              updatedEditions[activeEditionIndex] = { ...updatedEditions[activeEditionIndex], isbn: clean };
+                              // Only replace the cover if the book was using the automatic one for the old ISBN
+                              const oldIsbn = selectedBook.editions[activeEditionIndex].isbn;
+                              const usesAutoCover = !selectedBook.customCoverUrl || selectedBook.customCoverUrl.includes(`/isbn/${oldIsbn}-`);
+                              updateBook(selectedBook.id, {
+                                editions: updatedEditions,
+                                ...(usesAutoCover ? { customCoverUrl: newCoverUrl } : {})
                               });
                             }
                           }}
@@ -1857,6 +1902,23 @@ try {
             </div>
 
             <form onSubmit={handleManualAddSubmit} className="p-5 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setManualOwned(true)}
+                  className={`py-2 text-xs rounded-xl font-semibold border transition-all ${manualOwned ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-200'}`}
+                >
+                  I own this
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManualOwned(false)}
+                  className={`py-2 text-xs rounded-xl font-semibold border transition-all ${!manualOwned ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-600 border-slate-200'}`}
+                >
+                  Add to wishlist
+                </button>
+              </div>
+
               <div>
                 <label className="text-[11px] font-semibold text-slate-500 uppercase block mb-1">Book Title *</label>
                 <input
@@ -1896,6 +1958,8 @@ try {
                   <label className="text-[11px] font-semibold text-slate-500 uppercase block mb-1">Book # In Series</label>
                   <input
                     type="number"
+                    step="any"
+                    min="0"
                     value={manualSeriesNum}
                     onChange={(e) => setManualSeriesNum(e.target.value)}
                     placeholder="e.g. 1"
@@ -1930,7 +1994,7 @@ try {
                 </div>
               </div>
 
-              <div>
+              {manualOwned && <div>
                 <label className="text-[11px] font-semibold text-slate-500 uppercase block mb-1">Shelf Location</label>
                 <input
                   type="text"
@@ -1939,16 +2003,54 @@ try {
                   placeholder="e.g. Living Room Shelf 2, Study"
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-orange-500"
                 />
-              </div>
+              </div>}
 
               <button
                 type="submit"
                 className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-xl shadow-xs transition-all mt-4"
               >
-                + Place On Shelf
+                {manualOwned ? '+ Place On Shelf' : '+ Add to Wishlist'}
               </button>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT BOOK DETAILS */}
+      {editingBook && (
+        <EditBookModal
+          book={editingBook}
+          onCancel={() => setEditingBook(null)}
+          onSave={async (changes) => {
+            const saved = await updateBook(editingBook.id, changes);
+            if (saved) setEditingBook(null);
+            return saved;
+          }}
+        />
+      )}
+
+      {/* Loading and error messages */}
+      {(!isLibraryLoaded || libraryError || saveError) && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] max-w-md w-[calc(100%-2rem)]">
+          {!isLibraryLoaded && !libraryError && (
+            <div className="px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs font-medium shadow-xl flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin" /> Loading your library…
+            </div>
+          )}
+          {(libraryError || saveError) && (
+            <div className="px-4 py-3 rounded-2xl bg-red-600 text-white text-xs font-medium shadow-xl flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span className="flex-1">
+                {libraryError ? `Could not load your library: ${libraryError}` : saveError}
+              </span>
+              <button
+                onClick={() => (libraryError ? window.location.reload() : setSaveError(null))}
+                className="font-bold underline flex-shrink-0"
+              >
+                {libraryError ? 'Retry' : 'Dismiss'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -2183,7 +2285,7 @@ function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
 }
 
 // Card Wrapper for Grid Views
-function AppleBookCard({ book, onClick, onAuthorClick, onToggleWishlist }) {
+function AppleBookCard({ book, onClick, onAuthorClick }) {
   return (
     <div
       onClick={onClick}
@@ -2191,12 +2293,14 @@ function AppleBookCard({ book, onClick, onAuthorClick, onToggleWishlist }) {
     >
       <div className="relative">
         <AppleBookCover book={book} />
-        <button
-          onClick={onToggleWishlist}
-          className="absolute top-2.5 right-2.5 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center hover:bg-black/75 transition-colors shadow-xs"
-        >
-          <Heart className={`w-3.5 h-3.5 ${book.isWishlist ? 'text-red-400 fill-red-400' : 'text-white/80'}`} />
-        </button>
+        {book.owned === false && (
+          <span
+            className="absolute top-2.5 right-2.5 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center shadow-xs"
+            title="On your wishlist"
+          >
+            <Heart className="w-3.5 h-3.5 text-red-400 fill-red-400" />
+          </span>
+        )}
       </div>
 
       <div className="mt-2 space-y-0.5">
@@ -2204,7 +2308,7 @@ function AppleBookCard({ book, onClick, onAuthorClick, onToggleWishlist }) {
           {book.workTitle}
         </h4>
         <button
-          onClick={onAuthorClick}
+          onClick={(e) => { e.stopPropagation(); onAuthorClick?.(e); }}
           className="text-[11px] text-slate-500 hover:text-orange-600 hover:underline transition-colors truncate block text-left"
         >
           {book.author}
