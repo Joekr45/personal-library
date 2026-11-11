@@ -6,6 +6,8 @@
 //
 // Results are cached in memory for a day so repeated lookups are instant and we stay polite to the catalogs.
 
+import { isbn13to10 as isbn13ToIsbn10 } from '../shared/isbn.js';
+
 const TIMEOUT_MS = 8000;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_MAX = 500;
@@ -270,5 +272,108 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
     });
   };
 
-  return { lookupIsbn, searchBooks };
+  // ---------- cover choices ----------
+
+  const findWorkKey = async (title, author) => {
+    if (!title) return null;
+    const params = new URLSearchParams({ title, limit: '1', fields: 'key' });
+    if (author) params.set('author', author);
+    const data = await getJson(`https://openlibrary.org/search.json?${params}`);
+    return data?.docs?.[0]?.key || null;
+  };
+
+  const yearOf = (date) => (String(date || '').match(/\d{4}/) || [null])[0];
+
+  // Every cover we can find for a book: first the exact edition (by ISBN), then other
+  // editions of the same book from Open Library and Google Books, each labelled with its
+  // language, year and publisher so the right one can be picked.
+  const getCoverOptions = ({ isbn13 = '', workKey = '', title = '', author = '', language = '' }) =>
+    cached(`covers:${isbn13}|${workKey}|${title.toLowerCase()}|${author.toLowerCase()}`, async () => {
+      const options = [];
+      const seen = new Set();
+      const add = (option) => {
+        if (!option.url || seen.has(option.url)) return;
+        seen.add(option.url);
+        options.push(option);
+      };
+
+      let edition = null;
+      if (isbn13) {
+        edition = await lookupIsbn(isbn13, isbn13ToIsbn10(isbn13));
+        const editionCovers = edition?.covers || [];
+        // Open Library serves the same picture by cover number and by ISBN; show it once.
+        const hasNumberedCover = editionCovers.some(c => c.url.includes('/b/id/'));
+        for (const c of editionCovers.filter(c => !(hasNumberedCover && c.url.includes('/b/isbn/')))) {
+          add({
+            url: c.url,
+            source: c.source,
+            thisEdition: true,
+            language: edition.language,
+            year: yearOf(edition.publishedDate),
+            publisher: edition.publisher,
+            format: edition.format,
+            isbn13
+          });
+        }
+      }
+
+      const bookTitle = title || edition?.title || '';
+      const bookAuthor = author || edition?.authors?.[0] || '';
+      const key = workKey || edition?.workKey || (await findWorkKey(bookTitle, bookAuthor));
+
+      const [olEditions, google] = await Promise.all([
+        key ? getJson(`https://openlibrary.org${key}/editions.json?limit=100`) : null,
+        bookTitle ? getJson(googleUrl(`intitle:${bookTitle}${bookAuthor ? ` inauthor:${bookAuthor}` : ''}`, '&maxResults=20&printType=books')) : null
+      ]);
+
+      for (const e of olEditions?.entries || []) {
+        const coverId = (e.covers || []).find(id => id > 0);
+        if (!coverId) continue;
+        add({
+          url: `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`,
+          source: 'Open Library',
+          thisEdition: Boolean(isbn13 && (e.isbn_13 || []).includes(isbn13)),
+          language: languageName(e.languages?.[0]?.key),
+          year: yearOf(e.publish_date),
+          publisher: (e.publishers || [])[0] || null,
+          format: e.physical_format || null,
+          isbn13: (e.isbn_13 || [])[0] || null,
+          title: e.title || null
+        });
+      }
+
+      const wantedTitle = normalizeTitle(bookTitle);
+      for (const item of google?.items || []) {
+        const v = item.volumeInfo || {};
+        // Only other editions of the same book (Google's search is loose)
+        if (wantedTitle && !normalizeTitle(v.title).startsWith(wantedTitle) && !wantedTitle.startsWith(normalizeTitle(v.title))) continue;
+        const url = googleCover(v.imageLinks);
+        if (!url) continue;
+        const ids = v.industryIdentifiers || [];
+        const itemIsbn = ids.find(i => i.type === 'ISBN_13')?.identifier || null;
+        add({
+          url,
+          source: 'Google Books',
+          thisEdition: Boolean(isbn13 && itemIsbn === isbn13),
+          language: languageName(v.language),
+          year: yearOf(v.publishedDate),
+          publisher: v.publisher || null,
+          format: null,
+          isbn13: itemIsbn,
+          title: v.title || null
+        });
+      }
+
+      const preferred = language || edition?.language || 'English';
+      const rank = (o) => (o.thisEdition ? 0 : o.language === preferred ? 1 : !o.language ? 2 : 3);
+      const sorted = options
+        .map((o, i) => ({ o, i }))
+        .sort((a, b) => rank(a.o) - rank(b.o) || a.i - b.i)
+        .map(({ o }) => o)
+        .slice(0, 48);
+      const languages = [...new Set(sorted.map(o => o.language).filter(Boolean))];
+      return sorted.length ? { options: sorted, languages, workKey: key || null } : null;
+    });
+
+  return { lookupIsbn, searchBooks, getCoverOptions };
 }

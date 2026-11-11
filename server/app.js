@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { openDatabase } from './db.js';
 import { createLookup } from './lookup.js';
+import { createCoverStore, CoverError, COVER_CONTENT_TYPES } from './covers.js';
 import { classifyCode } from '../shared/isbn.js';
 import {
   SESSION_COOKIE, hashPassword, verifyPassword, createSession, userForSession,
@@ -13,7 +14,7 @@ import {
   isLoginBlocked, recordLoginFailure, clearLoginFailures
 } from './auth.js';
 
-const MAX_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_BODY_BYTES = 4 * 1024 * 1024; // room for a phone photo of a cover
 const USER_COLORS = [
   'from-orange-500 to-amber-500',
   'from-blue-600 to-indigo-600',
@@ -43,9 +44,10 @@ class HttpError extends Error {
   }
 }
 
-export function createServer({ dataDir, distDir, allowRegistration = true, fetchImpl, googleApiKey }) {
+export function createServer({ dataDir, distDir, allowRegistration = true, fetchImpl, googleApiKey, resolveHost }) {
   const db = openDatabase(dataDir);
   const lookup = createLookup({ fetchImpl, googleApiKey });
+  const covers = createCoverStore({ dataDir, fetchImpl, resolveHost });
   deleteExpiredSessions(db);
   setInterval(() => deleteExpiredSessions(db), 6 * 60 * 60 * 1000).unref();
 
@@ -207,6 +209,22 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       return { status: 200, body: { results: await lookup.searchBooks({ title, author }) } };
     },
 
+    // All the cover pictures we can find for a book, labelled by edition.
+    'GET /api/lookup/covers': async (req) => {
+      requireUser(req);
+      const params = new URL(req.url, 'http://localhost').searchParams;
+      const isbn13 = classifyCode(params.get('isbn') || '').isbn13 || '';
+      const workKey = /^\/works\/OL\d+W$/.test(params.get('workKey') || '') ? params.get('workKey') : '';
+      const result = await lookup.getCoverOptions({
+        isbn13,
+        workKey,
+        title: cleanText(params.get('title') || '', 200),
+        author: cleanText(params.get('author') || '', 200),
+        language: cleanText(params.get('language') || '', 40)
+      });
+      return { status: 200, body: result || { options: [], languages: [], workKey: null } };
+    },
+
     'GET /api/books': (req) => {
       const user = requireUser(req);
       const rows = db.prepare('SELECT id, data FROM books WHERE user_id = ? ORDER BY created_at DESC, rowid DESC').all(user.id);
@@ -215,7 +233,9 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
 
     'POST /api/books': async (req) => {
       const user = requireUser(req);
-      const data = validateBook(await readJson(req));
+      const body = await readJson(req);
+      delete body.coverFile; // managed by the server
+      const data = validateBook(body);
       const id = crypto.randomUUID();
       db.prepare('INSERT INTO books (id, user_id, data) VALUES (?, ?, ?)').run(id, user.id, JSON.stringify(data));
       return { status: 201, body: { book: { ...data, id } } };
@@ -239,17 +259,70 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       const existing = db.prepare('SELECT data FROM books WHERE id = ? AND user_id = ?').get(bookId, user.id);
       if (!existing) throw new HttpError(404, 'Book not found.');
       // Merge the changes into the saved book, so the browser can send only what changed.
-      const data = validateBook({ ...JSON.parse(existing.data), ...(await readJson(req)) });
+      const changes = await readJson(req);
+      delete changes.coverFile; // managed by the server
+      const data = validateBook({ ...JSON.parse(existing.data), ...changes });
+      // If the book no longer uses its saved cover, delete the saved file.
+      if (data.coverFile && data.customCoverUrl !== `/api/covers/${data.coverFile}`) {
+        covers.remove(data.coverFile);
+        delete data.coverFile;
+      }
       db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
         .run(JSON.stringify(data), bookId, user.id);
       return { status: 200, body: { book: { ...data, id: bookId } } };
     },
     DELETE: (req, bookId) => {
       const user = requireUser(req);
-      const result = db.prepare('DELETE FROM books WHERE id = ? AND user_id = ?').run(bookId, user.id);
-      if (result.changes === 0) throw new HttpError(404, 'Book not found.');
+      const existing = db.prepare('SELECT data FROM books WHERE id = ? AND user_id = ?').get(bookId, user.id);
+      if (!existing) throw new HttpError(404, 'Book not found.');
+      db.prepare('DELETE FROM books WHERE id = ? AND user_id = ?').run(bookId, user.id);
+      covers.remove(JSON.parse(existing.data).coverFile);
       return { status: 200, body: { ok: true } };
     }
+  };
+
+  // Save a cover for a book: { url } downloads a picture from the web, { imageData } is a photo
+  // taken or chosen on the phone. The picture is kept on the server from then on.
+  const saveBookCover = async (req, bookId) => {
+    const user = requireUser(req);
+    const existing = db.prepare('SELECT data FROM books WHERE id = ? AND user_id = ?').get(bookId, user.id);
+    if (!existing) throw new HttpError(404, 'Book not found.');
+    const body = await readJson(req);
+    let file;
+    try {
+      if (body.imageData) file = covers.saveFromDataUrl(body.imageData);
+      else if (body.url) file = await covers.saveFromUrl(cleanText(body.url, 2000));
+      else throw new HttpError(400, 'No picture was sent.');
+    } catch (err) {
+      if (err instanceof CoverError) throw new HttpError(400, err.message);
+      throw err;
+    }
+    const data = JSON.parse(existing.data);
+    const oldFile = data.coverFile;
+    data.coverFile = file;
+    data.customCoverUrl = `/api/covers/${file}`;
+    if (body.url) data.coverSourceUrl = cleanText(body.url, 2000);
+    else delete data.coverSourceUrl;
+    db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+      .run(JSON.stringify(data), bookId, user.id);
+    if (oldFile && oldFile !== file) covers.remove(oldFile);
+    return { status: 200, body: { book: { ...data, id: bookId } } };
+  };
+
+  // Send a saved cover picture, only to the person whose book it belongs to.
+  const serveCover = (req, res, file) => {
+    const user = requireUser(req);
+    const owns = db.prepare("SELECT 1 FROM books WHERE user_id = ? AND json_extract(data, '$.coverFile') = ?").get(user.id, file);
+    const full = owns && covers.filePath(file);
+    if (!full) throw new HttpError(404, 'Cover not found.');
+    const ext = path.extname(full).slice(1);
+    const stat = fs.statSync(full);
+    res.writeHead(200, {
+      'Content-Type': COVER_CONTENT_TYPES[ext] || 'application/octet-stream',
+      'Content-Length': stat.size,
+      'Cache-Control': 'private, max-age=31536000, immutable'
+    });
+    fs.createReadStream(full).pipe(res);
   };
 
   // ---------- static files (the built React app) ----------
@@ -289,8 +362,12 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
         const route = routes[`${req.method} ${pathname}`];
         const bookMatch = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})$/);
         const codeMatch = pathname.match(/^\/api\/lookup\/isbn\/([0-9Xx-]{1,20})$/);
+        const coverUpload = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})\/cover$/);
+        const coverFile = pathname.match(/^\/api\/covers\/([0-9a-f-]{36}\.(?:jpg|png|webp|gif))$/);
+        if (coverFile && req.method === 'GET') return serveCover(req, res, coverFile[1]);
         let result;
         if (route) result = await route(req);
+        else if (coverUpload && req.method === 'POST') result = await saveBookCover(req, coverUpload[1]);
         else if (codeMatch && req.method === 'GET') result = await lookupCode(req, codeMatch[1]);
         else if (bookMatch && bookRoutes[req.method]) result = await bookRoutes[req.method](req, bookMatch[1]);
         else throw new HttpError(404, 'Not found.');
