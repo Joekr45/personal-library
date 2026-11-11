@@ -67,6 +67,8 @@ const FOREIGN_WORDS = new Set([
   'der', 'das', 'und', 'ein', 'eine', 'einer', 'im', 'vom', 'zum', 'zur', 'mit', 'von', 'aus', 'auf', 'nicht', 'ist', 'dem', 'den',
   // Italian
   'il', 'lo', 'gli', 'della', 'delle', 'dei', 'di', 'nel', 'nella', 'senza', 'per', 'tra', 'fra',
+  // Polish / Czech
+  'nad', 'pod', 'od', 'w', 'z', 'ze', 'oraz', 'nie', 'jest', 'się', 'ktory', 'noc', 'na',
   // Dutch / Scandinavian
   'het', 'een', 'van', 'op', 'och', 'att', 'af', 'og', 'til', 'fra', 'med', 'ikke', 'och', 'av', 'paa', 'pa',
   // shared
@@ -87,8 +89,9 @@ export function looksEnglish(title, languages) {
   const words = text.toLowerCase().replace(/['’]/g, ' ').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   const foreign = words.filter(w => FOREIGN_WORDS.has(w)).length;
   const english = words.filter(w => ENGLISH_WORDS.has(w)).length;
-  const accented = /[àáâãäåæçèéêëìíîïñòóôõöøùúûüýÿœßğış]/i.test(text);
-  if (accented && english === 0) return false;
+  // Letters with accents or extra marks (Spanish, French, German, Polish, Czech, Scandinavian, Turkish…)
+  const accented = /[àáâãäåæçèéêëìíîïñòóôõöøùúûüýÿœßğışłćśźżąęńřšžčďťůőű]/i.test(text);
+  if (accented && english < 2) return false;
   if (foreign > 0 && foreign >= english) return false;
   return true;
 }
@@ -432,11 +435,12 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
   });
 
   // Titles that are not really "a book by this author": box sets, study guides, summaries...
-  const JUNK_TITLE = /\b(box(ed)?[\s-]*set|\d+[\s-]*books?[\s-]*(set|collection|bundle)|books?\s+\d+\s*[-–&]\s*\d+|(study|reading|reader'?s|teacher'?s)\s+guide|summary|summaries|sparknotes|cliff'?s?\s*notes|analysis of|unofficial|trivia|quiz|workbook|colou?ring book|calendar|(audio|e)[\s-]?book|unabridged|large print)\b/i;
+  const JUNK_TITLE = /\b(box(ed)?[\s-]*set|\d+[\s-]*books?[\s-]*(set|collection|bundle)|books?\s+\d+\s*[-–&]\s*\d+|(study|reading|reader'?s|teacher'?s)\s+guide|summary|summaries|sparknotes|cliff'?s?\s*notes|analysis of|unofficial|trivia|quiz|workbook|colou?ring book|calendar|(audio|e)[\s-]?book|unabridged|large print|(floor|counter)\s+display|display\s+with|special header|\d+[\s-]*copy\b|dump\s*bin|prepack)\b/i;
 
   // The main part of a title, used to spot the same book listed twice
   // ("Fall of Giants: Book One of the Century Trilogy" -> "fallofgiants").
-  const mainTitleKey = (title) => normalizeTitle(String(title || '').split(/\s*[:(\[]\s*|\s+[-–—]\s+/)[0]);
+  // British/American spellings count as the same title (Armour/Armor, Colour/Color).
+  const mainTitleKey = (title) => normalizeTitle(String(title || '').split(/\s*[:(\[]\s*|\s+[-–—]\s+/)[0].replace(/our\b/gi, 'or'));
 
   const isEnglishOrUnknown = (langs) => !Array.isArray(langs) || langs.length === 0 || langs.includes('eng');
 
@@ -454,7 +458,7 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
     const docs = pages.flatMap(p => p?.docs || []);
 
     const google = name
-      ? await getJson(googleUrl(`inauthor:"${name}"`, '&maxResults=40&orderBy=newest&printType=books'))
+      ? await getJson(googleUrl(`inauthor:"${name}"`, '&maxResults=40&orderBy=newest&printType=books&langRestrict=en'))
       : null;
 
     const books = new Map();
@@ -480,6 +484,7 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
       existing.workKey = existing.workKey || entry.workKey;
       existing.isbn13 = existing.isbn13 || entry.isbn13;
       existing.coAuthors = existing.coAuthors.length ? existing.coAuthors : entry.coAuthors;
+      existing.unconfirmed = existing.unconfirmed && entry.unconfirmed;
     };
 
     for (const d of docs) {
@@ -488,14 +493,19 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
       const edition = d.editions?.docs?.[0];
       const editionLangs = (edition?.language || []).map(l => String(l).replace('/languages/', ''));
       let title = d.title;
+      let unconfirmed = false;
       if (editionLangs.length > 0) {
         // Open Library told us which edition it would show: trust its language.
         if (!editionLangs.includes('eng')) continue;
         title = edition.title || d.title;
-        if (!looksEnglish(title, ['eng'])) continue;
-      } else if (!isEnglishOrUnknown(d.language) || !looksEnglish(d.title, d.language)) {
-        continue;
+      } else if (Array.isArray(d.language) && d.language.length > 0) {
+        if (!d.language.includes('eng')) continue;
+      } else {
+        // No language information at all. In practice these are mostly translations added by
+        // bulk imports, so they're only kept if Google Books confirms an English book of that title.
+        unconfirmed = true;
       }
+      if (!looksEnglish(title, ['eng'])) continue;
       addBook({
         id: String(d.key || '').replace('/works/', ''),
         workKey: d.key || null,
@@ -506,7 +516,8 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
         editionCount: d.edition_count || 0,
         isbn13: null,
         coAuthors: (d.author_name || []).filter(n => n !== name),
-        sources: ['Open Library']
+        sources: ['Open Library'],
+        unconfirmed
       });
     }
 
@@ -515,7 +526,7 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
       const v = item.volumeInfo || {};
       // Only books actually credited to this author, in English
       if (!(v.authors || []).some(a => surname(a) === surname(name) && a.toLowerCase().includes(name.toLowerCase().split(/\s+/)[0]))) continue;
-      if ((v.language && v.language !== 'en') || !looksEnglish(v.title)) continue;
+      if (v.language !== 'en' || !looksEnglish(v.title)) continue;
       addBook({
         id: `g-${item.id}`,
         workKey: null,
@@ -526,13 +537,16 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
         editionCount: 0,
         isbn13: (v.industryIdentifiers || []).find(i => i.type === 'ISBN_13')?.identifier || null,
         coAuthors: (v.authors || []).filter(a => surname(a) !== surname(name)),
-        sources: ['Google Books']
+        sources: ['Google Books'],
+        unconfirmed: false
       });
     }
 
     const list = Array.from(books.values())
       // A book only one obscure catalog record knows about, with no year, is usually noise.
+      .filter(b => !b.unconfirmed)
       .filter(b => b.year || b.cover || b.editionCount > 1 || b.sources.length > 1)
+      .map(({ unconfirmed, ...b }) => b)
       .sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0));
     if (!name && list.length === 0) return null;
     return {
