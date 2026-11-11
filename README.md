@@ -25,6 +25,14 @@ Lookups are done by the server, which asks **Open Library** and **Google Books**
 
 Older mass-market paperbacks often have a 12-digit **store barcode (UPC)** on the back instead of the ISBN barcode. The app recognises these and explains where to find the real ISBN.
 
+## Author search
+
+**Authors** in the menu: search any author (or tap an author's name on any book) to see everything they've written.
+Books you own are shown first, in colour with your own cover; books you don't own are greyed out, and wishlist books carry a heart.
+Tap a grey book to add it to your wishlist, say you own it (the usual cover/language card opens), or **hide** it from the list if it isn't a real book.
+
+The bibliography combines Open Library (works in English, one entry per book; translations and box sets/study guides are left out) with Google Books (for new releases). Hidden entries are remembered per person.
+
 ## Covers
 
 Whenever a book is added (scan, ISBN, title search or typed in) you can **Change cover**: the app shows every cover it can find for that book, labelled by edition (language, year, publisher), with **This edition** first. You can also use a **photo of your own copy** or **paste a link** to a picture. Every book's page has a **Change cover** button too.

@@ -23,7 +23,6 @@ import {
   BookMarked,
   LogOut,
   User,
-  Compass,
   ArrowRight,
   Trash2,
   Mail,
@@ -40,6 +39,7 @@ import EditBookModal from './src/EditBookModal.jsx';
 import ScannerModal from './src/ScannerModal.jsx';
 import { LANGUAGES } from './src/languages.js';
 import CoverPicker from './src/CoverPicker.jsx';
+import AuthorPage from './src/AuthorPage.jsx';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -173,17 +173,13 @@ export default function App() {
 
   // View state
   const [activeSection, setActiveSection] = useState('all');
-  const [selectedAuthor, setSelectedAuthor] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('grid');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 36;
 
-  // Universal Global Author Search state
-  const [globalAuthorQuery, setGlobalAuthorQuery] = useState('');
-  const [viewingGlobalAuthor, setViewingGlobalAuthor] = useState(null);
-  const [isSearchingAuthor, setIsSearchingAuthor] = useState(false);
-  const [authorSearchError, setAuthorSearchError] = useState(null);
+  // Author page: which author to open (set when an author's name is tapped anywhere)
+  const [authorRequest, setAuthorRequest] = useState(null);
 
   // Modals & Scanner
   const [selectedBook, setSelectedBook] = useState(null);
@@ -256,200 +252,6 @@ export default function App() {
     setSearchQuery('');
   };
 
-  // Global Author Search
-  const handleLiveGlobalAuthorSearch = async (searchTerm) => {
-    const query = (searchTerm || globalAuthorQuery).trim();
-    if (!query) return;
-
-    setIsSearchingAuthor(true);
-    setAuthorSearchError(null);
-
-    try {
-      const cleanQ = encodeURIComponent(query);
-      // 1. Search Open Library by author specific field with a higher capacity
-    const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&language=eng&limit=1000`, {
-        mode: 'cors'
-      }).catch(() => null);
-
-      if (!res || !res.ok) {
-        throw new Error('Network timeout');
-      }
-
-      const data = await res.json();
-      if (data.docs && data.docs.length > 0) {
-        const formattedQueryName = query
-          .split(' ')
-          .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-          .join(' ');
-
-        const exactAuthorMatch = data.docs
-          .flatMap(doc => doc.author_name || [])
-          .find(a => a.toLowerCase().includes(query.toLowerCase()));
-
-        const resolvedDisplayName = exactAuthorMatch || formattedQueryName;
-
-        // Create a fast lookup Set of normalized owned titles and ISBNs
-        const ownedTitleSet = new Set(
-          (books || []).filter(b => b.owned !== false).map(b => (b.workTitle || b.title || '').trim().toLowerCase())
-        );
-        const ownedIsbnSet = new Set(
-          (books || []).filter(b => b.owned !== false).flatMap(b => (b.editions || []).map(e => (e.isbn || '').trim()))
-        );
-
-       // Helper to strip leading articles ("The", "A", "An") and symbols for matching
-      const getCanonicalTitleKey = (rawTitle) => {
-        let t = rawTitle.toLowerCase().trim();
-        // If title has a slash (e.g. "Armadura de la Luz / The Armor of Light"), extract the parts
-        if (t.includes('/')) {
-          const parts = t.split('/').map(p => p.trim());
-          // Prefer parts that don't start with common Spanish prefixes if an English side exists
-          const englishPart = parts.find(p => !p.startsWith('el ') && !p.startsWith('la ') && !p.startsWith('las ') && !p.startsWith('los ') && !p.startsWith('una ') && !p.startsWith('un '));
-          t = englishPart || parts[0];
-        }
-        return t.replace(/^(the|a|an)\s+/i, '').replace(/[^a-z0-9]/g, '');
-      };
-
-      const booksMap = new Map();
-
-      for (const doc of data.docs) {
-        if (!doc.title) continue;
-
-       const docLangs = Array.isArray(doc.language) ? doc.language : [];
-
-      // 1. Always preserve books in your personal collection
-        const isDocOwned = 
-          ownedTitleSet.has(doc.title.trim().toLowerCase()) || 
-          ownedTitleSet.has(getCanonicalTitleKey(doc.title)) ||
-          (doc.isbn && doc.isbn.some(code => ownedIsbnSet.has(code)));
-
-        if (!isDocOwned) {
-          // 1. Language metadata check: If Open Library specifies languages, reject if English is missing
-          const rawLangs = Array.isArray(doc.language) ? doc.language : [doc.language];
-          const langs = rawLangs.filter(Boolean).map(l => String(l).toLowerCase().trim());
-          if (langs.length > 0 && !langs.some(l => l === 'eng' || l === 'en' || l.startsWith('en-'))) {
-            continue;
-          }
-
-          // 2. Reject non-ASCII characters (catches accented titles like Colección, Mundo, Coluna, etc.)
-          if (/[^\u0000-\u007F]/.test(doc.title)) {
-            continue;
-          }
-
-          // 3. Reject box sets and omnibus dumps
-          if (/\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(doc.title)) {
-            continue;
-          }
-
-          // 4. English structural word check for multi-word titles
-          const titleWords = doc.title.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
-          const englishConnectors = new Set([
-            'the', 'a', 'an', 'and', 'of', 'in', 'to', 'for', 'with', 'on', 'at',
-            'from', 'by', 'about', 'as', 'into', 'like', 'through', 'after',
-            'over', 'between', 'out', 'against', 'during', 'without', 'before',
-            'under', 'around', 'among', 'is', 'are', 'was', 'were', 'be', 'been',
-            'no', 'not', 'all', 'any', 'my', 'your', 'his', 'her', 'their', 'our',
-            'man', 'world', 'time', 'day', 'night', 'dark', 'light', 'fire'
-          ]);
-
-          const hasEnglishConnector = titleWords.some(w => englishConnectors.has(w));
-          const isSingleWordTitle = titleWords.length === 1;
-
-          if (!hasEnglishConnector && !isSingleWordTitle) {
-            continue;
-          }
-        }
-
-      // 6. Extract primary display title (strip foreign half if slash-separated)
-        let displayTitle = doc.title;
-        if (displayTitle.includes('/')) {
-          const parts = displayTitle.split('/').map(p => p.trim());
-          const engCandidate = parts.find(p => !/^(el|la|los|las|un|una|il|lo|le|das|der|die|nunca)\b/i.test(p));
-          displayTitle = engCandidate || parts[parts.length - 1];
-        }
-        const canonicalKey = getCanonicalTitleKey(displayTitle);
-
-        // Language label for edition tracking
-        const editionLanguage = docLangs.includes('spa') ? 'Spanish' : docLangs.includes('eng') || docLangs.length === 0 ? 'English' : docLangs[0].toUpperCase();
-
-        const editionEntry = {
-          id: `ed-${doc.key || Math.random().toString(36).substring(2, 9)}`,
-          title: doc.title,
-          language: editionLanguage,
-          format: 'Paperback',
-          isbn: doc.isbn ? doc.isbn[0] : 'Pending Scan',
-          published: doc.first_publish_year ? String(doc.first_publish_year) : 'Unknown',
-          publisher: (doc.publisher && doc.publisher[0]) || 'Publisher'
-        };
-
-        if (booksMap.has(canonicalKey)) {
-          // Attach translation/edition under the master English work
-          const master = booksMap.get(canonicalKey);
-          if (!master.editions.some(e => e.isbn === editionEntry.isbn && e.title === editionEntry.title)) {
-            master.editions.push(editionEntry);
-          }
-        } else {
-          // If this is a standalone translation work with no English match in catalog, skip it
-
-          const coverId = doc.cover_i;
-          const isbn = doc.isbn ? doc.isbn[0] : null;
-          const cover = coverId
-            ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg`
-            : isbn
-            ? `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`
-            : null;
-
-          const matchingAuthor = (doc.author_name || []).find(a =>
-            a.toLowerCase().includes(query.toLowerCase())
-          ) || doc.author_name?.[0] || resolvedDisplayName;
-
-          const normalizedTitle = displayTitle.trim().toLowerCase();
-          const isOwned =
-            ownedTitleSet.has(normalizedTitle) ||
-            ownedTitleSet.has(getCanonicalTitleKey(displayTitle)) ||
-            (isbn && ownedIsbnSet.has(isbn));
-
-          booksMap.set(canonicalKey, {
-            id: doc.key || `ol-${booksMap.size}-${Date.now()}`,
-            title: displayTitle,
-            author: matchingAuthor,
-            publishedDate: doc.first_publish_year ? String(doc.first_publish_year) : 'Unknown',
-            description: 'Catalog bibliography entry.',
-            coverUrl: cover,
-            isbn: isbn || 'Pending Scan',
-            category: (doc.subject && doc.subject[0]) || 'Fiction',
-            isOwned: Boolean(isOwned),
-            editions: [editionEntry]
-          });
-        }
-      }
-
-      const foundBooks = Array.from(booksMap.values());
-
-        // Sort so owned books appear first, followed by publication year descending
-        foundBooks.sort((a, b) => {
-          if (a.isOwned !== b.isOwned) return a.isOwned ? -1 : 1;
-          const yearA = parseInt(a.publishedDate, 10) || 0;
-          const yearB = parseInt(b.publishedDate, 10) || 0;
-          return yearB - yearA;
-        });
-
-       if (foundBooks.length > 0) {
-        setViewingGlobalAuthor({
-          name: resolvedDisplayName,
-          bio: `Catalog bibliography for ${resolvedDisplayName}. (${foundBooks.filter(b => b.isOwned).length} of ${foundBooks.length} owned)`,
-          books: foundBooks
-      });
-    } else {
-      setAuthorSearchError(`No catalog records found matching "${query}". Check spelling or try a different name.`);
-    }
-  }
-} catch (err) {
-      setAuthorSearchError('Connection timeout or rate limit from catalog.');
-    } finally {
-      setIsSearchingAuthor(false);
-    }
-  };
-
   const libraryAuthors = useMemo(() => {
     const authorMap = {};
     books.forEach(b => {
@@ -490,10 +292,9 @@ export default function App() {
       if (activeSection === 'unread') return b.readingStatus === 'Unread' && b.owned !== false;
       if (activeSection === 'completed') return b.readingStatus === 'Completed' && b.owned !== false;
       if (activeSection === 'wishlist') return b.owned === false;
-      if (activeSection === 'authors' && selectedAuthor) return b.author === selectedAuthor;
       return true;
     });
-  }, [books, activeSection, searchQuery, selectedAuthor]);
+  }, [books, activeSection, searchQuery]);
 
   const totalPages = Math.ceil(filteredBooks.length / ITEMS_PER_PAGE);
   const paginatedBooks = useMemo(() => {
@@ -571,39 +372,54 @@ export default function App() {
     setIsManualAddOpen(false);
   };
 
-  // Add a book found in the author search, either to the shelves (owned) or the wishlist.
-  const addCatalogBook = (item, owned) => {
-    addBook({
-      workTitle: item.title,
-      author: item.author,
+  // Author page: add a book from an author's bibliography straight to the wishlist.
+  const addWishlistFromAuthor = async (entry, author) => {
+    const cover = entry.cover ? entry.cover.replace(/-M\.jpg$/, '-L.jpg') : null;
+    const saved = await addBook({
+      workTitle: entry.title,
+      author: [author.name, ...(entry.coAuthors || [])].join(', '),
       series: null,
       seriesNumber: null,
-      owned,
+      owned: false,
       readingStatus: 'Unread',
-      shelfLocation: owned ? 'Living Room Shelf' : '',
-      customCoverUrl: item.coverUrl,
+      shelfLocation: '',
+      customCoverUrl: cover,
+      workKey: entry.workKey || null,
       theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
       editions: [{
         id: `ed-${Date.now()}`,
-        title: item.title,
+        title: entry.title,
         language: 'English',
-        format: 'Paperback',
-        isbn: item.isbn || 'Pending Scan',
-        published: item.publishedDate,
-        publisher: 'Publisher'
+        format: 'Physical Print',
+        isbn: entry.isbn13 || 'Pending Scan',
+        published: entry.year || 'Unknown',
+        publisher: 'Unknown'
       }]
     });
-    // Instantly show the new status in the search results
-    setViewingGlobalAuthor(prev => prev ? ({
-      ...prev,
-      books: prev.books.map(b => b.id === item.id ? { ...b, isOwned: owned, isWanted: !owned } : b)
-    }) : null);
+    if (saved && cover) saveCoverFor(saved.id, { url: cover }, { quiet: true });
   };
 
+  // Author page: "I own this" opens the usual confirmation card (cover + language) for that book.
+  const [scannerInitialBook, setScannerInitialBook] = useState(null);
+  const addOwnedFromAuthor = (entry, author) => {
+    setScannerInitialBook({
+      title: entry.title,
+      subtitle: entry.subtitle || null,
+      authors: [author.name, ...(entry.coAuthors || [])],
+      publishedDate: entry.year,
+      language: 'English',
+      isbn13: entry.isbn13 || null,
+      workKey: entry.workKey || null,
+      sources: entry.sources,
+      covers: entry.cover ? [{ url: entry.cover.replace(/-M\.jpg$/, '-L.jpg') }] : []
+    });
+    setIsScanModalOpen(true);
+  };
+
+  // Tapping an author's name anywhere opens their page with their full bibliography.
   const navigateToAuthor = (authorName, e) => {
     e?.stopPropagation();
-    setSelectedAuthor(authorName);
-    setViewingGlobalAuthor(null);
+    setAuthorRequest({ name: authorName, at: Date.now() });
     setActiveSection('authors');
     setCurrentPage(1);
     if (selectedBook) setSelectedBook(null);
@@ -802,7 +618,7 @@ export default function App() {
             <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">My Books</p>
 
             <button
-              onClick={() => { setActiveSection('all'); setSelectedAuthor(null); setCurrentPage(1); }}
+              onClick={() => { setActiveSection('all'); setCurrentPage(1); }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeSection === 'all'
                   ? 'bg-orange-500 text-white shadow-xs'
@@ -819,7 +635,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => { setActiveSection('reading'); setSelectedAuthor(null); setCurrentPage(1); }}
+              onClick={() => { setActiveSection('reading'); setCurrentPage(1); }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeSection === 'reading'
                   ? 'bg-orange-500 text-white shadow-xs'
@@ -836,7 +652,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => { setActiveSection('unread'); setSelectedAuthor(null); setCurrentPage(1); }}
+              onClick={() => { setActiveSection('unread'); setCurrentPage(1); }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeSection === 'unread'
                   ? 'bg-orange-500 text-white shadow-xs'
@@ -853,7 +669,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => { setActiveSection('completed'); setSelectedAuthor(null); setCurrentPage(1); }}
+              onClick={() => { setActiveSection('completed'); setCurrentPage(1); }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeSection === 'completed'
                   ? 'bg-orange-500 text-white shadow-xs'
@@ -870,7 +686,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => { setActiveSection('wishlist'); setSelectedAuthor(null); setCurrentPage(1); }}
+              onClick={() => { setActiveSection('wishlist'); setCurrentPage(1); }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeSection === 'wishlist'
                   ? 'bg-orange-500 text-white shadow-xs'
@@ -893,8 +709,6 @@ export default function App() {
             <button
               onClick={() => {
                 setActiveSection('authors');
-                setSelectedAuthor(null);
-                setViewingGlobalAuthor(null);
                 setCurrentPage(1);
               }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
@@ -913,7 +727,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => { setActiveSection('series'); setSelectedAuthor(null); setCurrentPage(1); }}
+              onClick={() => { setActiveSection('series'); setCurrentPage(1); }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
                 activeSection === 'series'
                   ? 'bg-orange-500 text-white shadow-xs'
@@ -1016,217 +830,14 @@ export default function App() {
 
         <div className="flex-1 overflow-y-auto px-3 md:px-8 py-4 md:py-6">
           {activeSection === 'authors' && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-r from-orange-500/10 via-amber-500/5 to-transparent border border-orange-200/80 p-6 rounded-3xl space-y-4">
-                <div className="flex items-center gap-2 text-slate-900">
-                  <Compass className="w-5 h-5 text-orange-600" />
-                  <h2 className="text-base font-bold">Universal Global Author Search</h2>
-                </div>
-                <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
-                  Search <strong>any author in the world</strong> to pull their bibliography, real covers, and instantly add titles to your shelf with one click.
-                </p>
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    handleLiveGlobalAuthorSearch();
-                  }}
-                  className="flex gap-2 max-w-2xl"
-                >
-                  <div className="relative flex-1">
-                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      value={globalAuthorQuery}
-                      onChange={(e) => setGlobalAuthorQuery(e.target.value)}
-                      placeholder="Type any author name and press Enter..."
-                      className="w-full pl-10 pr-4 py-2.5 bg-white text-xs text-slate-900 placeholder-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:border-orange-500 shadow-xs"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isSearchingAuthor || !globalAuthorQuery.trim()}
-                    className="px-5 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 whitespace-nowrap"
-                  >
-                    {isSearchingAuthor ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Searching...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Search className="w-3.5 h-3.5" />
-                        <span>Search Catalog</span>
-                      </>
-                    )}
-                  </button>
-                </form>
-
-                {authorSearchError && (
-                  <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                    <span>{authorSearchError}</span>
-                  </div>
-                )}
-              </div>
-
-              {viewingGlobalAuthor && (
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase font-bold tracking-wider text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
-                          Catalog Search Results
-                        </span>
-                        <h3 className="text-xl font-bold text-slate-900">{viewingGlobalAuthor.name}</h3>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">{viewingGlobalAuthor.bio}</p>
-                    </div>
-                    <button
-                      onClick={() => setViewingGlobalAuthor(null)}
-                      className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50"
-                    >
-                      Close View ✕
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                      Published Works ({viewingGlobalAuthor.books?.length || 0} Retrieved)
-                    </h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                      {viewingGlobalAuthor.books?.map((item) => (
-                        <div 
-                key={item.id} 
-                className={`p-3 rounded-xl flex gap-3 items-center border transition-all ${
-                  item.isOwned 
-                    ? 'bg-emerald-50/50 border-emerald-200' 
-                    : 'bg-slate-50 border-slate-200'
-                }`}
-              >
-                <div className={`w-14 h-20 bg-slate-200 rounded-md overflow-hidden flex-shrink-0 shadow-2xs transition-all ${
-                  item.isOwned ? '' : 'grayscale opacity-60 hover:opacity-100'
-                }`}>
-                  {item.coverUrl ? (
-                    <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <div className="text-xs font-bold text-slate-900 truncate" title={item.title}>
-                      {item.title}
-                    </div>
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    {item.publishedDate} • {item.category}
-                  </div>
-                  
-                  {item.isOwned ? (
-                    <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-semibold rounded-md border border-emerald-200">
-                      <span>✓</span> In Collection
-                    </div>
-                  ) : item.isWanted ? (
-                    <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-rose-50 text-rose-700 text-[10px] font-semibold rounded-md border border-rose-200">
-                      <Heart className="w-3 h-3" /> On Wishlist
-                    </div>
-                  ) : (
-                    <div className="flex gap-1.5 mt-2">
-                      <button
-                        onClick={() => addCatalogBook(item, true)}
-                        className="px-2.5 py-1 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-semibold rounded-lg shadow-2xs cursor-pointer transition-colors"
-                      >
-                        + I Own This
-                      </button>
-                      <button
-                        onClick={() => addCatalogBook(item, false)}
-                        className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-[10px] font-semibold rounded-lg cursor-pointer transition-colors"
-                      >
-                        + Wishlist
-                      </button>
-                    </div>
-                 )}
-                </div>
-              </div>
-           ))}
-      </div>
-    </div>
-  </div>
-)}
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                    Authors Currently On Your Shelves ({libraryAuthors.length})
-                  </h3>
-                </div>
-
-                {libraryAuthors.length === 0 ? (
-                  <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl">
-                    <p className="text-xs text-slate-500">
-                      No authors in your personal library yet. Use the barcode scanner or global search above to add your first book!
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                    {libraryAuthors.map((auth) => (
-                      <div
-                        key={auth.name}
-                        onClick={(e) => navigateToAuthor(auth.name, e)}
-                        className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between h-24 ${
-                          selectedAuthor === auth.name
-                            ? 'bg-orange-50/80 border-orange-400 shadow-xs'
-                            : 'bg-white border-slate-200/80 hover:border-slate-300 hover:shadow-2xs'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center font-bold text-xs text-slate-700">
-                            {auth.name.charAt(0)}
-                          </div>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                            {auth.count} {auth.count === 1 ? 'book' : 'books'}
-                          </span>
-                        </div>
-                        <div className="text-xs font-bold text-slate-900 truncate">
-                          {auth.name}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {selectedAuthor && (
-                <div className="mt-8 pt-6 border-t border-slate-200 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xl font-bold text-slate-900">{selectedAuthor}</h3>
-                      <p className="text-xs text-slate-500">
-                        Showing all titles in your collection by this author.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => { setActiveSection('all'); setSelectedAuthor(null); setCurrentPage(1); }}
-                      className="text-xs text-orange-600 font-semibold hover:underline"
-                    >
-                      View All Books →
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-5">
-                    {books.filter(b => b.author.toLowerCase() === selectedAuthor.toLowerCase()).map(book => (
-                      <AppleBookCard
-                        key={book.id}
-                        book={book}
-                        onClick={() => { setSelectedBook(book); setActiveEditionIndex(0); }}
-                        onAuthorClick={(e) => navigateToAuthor(book.author, e)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            <AuthorPage
+              books={books}
+              libraryAuthors={libraryAuthors}
+              request={authorRequest}
+              onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }}
+              onAddOwned={addOwnedFromAuthor}
+              onAddWishlist={addWishlistFromAuthor}
+            />
           )}
 
           {activeSection === 'series' && (
@@ -1860,9 +1471,10 @@ export default function App() {
         <ScannerModal
           books={books}
           coverThemes={COVER_THEMES}
-          onClose={() => setIsScanModalOpen(false)}
+          onClose={() => { setIsScanModalOpen(false); setScannerInitialBook(null); }}
           onAdd={addBook}
           onSaveCover={saveCoverFor}
+          initialBook={scannerInitialBook}
           onManualAdd={openManualAdd}
         />
       )}
