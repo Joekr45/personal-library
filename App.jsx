@@ -446,7 +446,7 @@ try {
     try {
       const cleanQ = encodeURIComponent(query);
       // 1. Search Open Library by author specific field with a higher capacity
-     const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&language=eng&limit=100`, {
+    const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&limit=100`, {
         mode: 'cors'
       }).catch(() => null);
 
@@ -495,29 +495,38 @@ try {
 
        const docLangs = Array.isArray(doc.language) ? doc.language : [];
 
-        // 1. If Open Library lists foreign languages, drop it unless English is the primary/only language
-        const nonEnglishCodes = ['spa', 'fre', 'ita', 'ger', 'deu', 'por', 'dut', 'nld', 'rus', 'chi', 'zho', 'jpn', 'pol', 'swe', 'dan', 'nor'];
-        const hasForeignLanguageCode = docLangs.some(l => nonEnglishCodes.includes(l.toLowerCase()));
-        if (hasForeignLanguageCode && docLangs[0] !== 'eng' && docLangs[0] !== 'en') {
-          continue;
-        }
+       // Check if this book is in the user's collection (by title or ISBN)
+        const isDocOwned = 
+          ownedTitleSet.has(doc.title.trim().toLowerCase()) || 
+          ownedTitleSet.has(getCanonicalTitleKey(doc.title)) ||
+          (doc.isbn && doc.isbn.some(code => ownedIsbnSet.has(code)));
 
-        // 2. Normalize accents and lowercase so "Caída" -> "caida", "Águias" -> "aguias"
-        const cleanTitleLower = doc.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        // Only apply language/format filters if the book is NOT already owned
+        if (!isDocOwned) {
+          // If Open Library explicitly lists foreign languages, drop it unless English is primary
+          const nonEnglishCodes = ['spa', 'fre', 'ita', 'ger', 'deu', 'por', 'dut', 'nld', 'rus', 'chi', 'zho', 'jpn', 'pol', 'swe', 'dan', 'nor'];
+          const hasForeignLanguageCode = docLangs.some(l => nonEnglishCodes.includes(l.toLowerCase()));
+          if (hasForeignLanguageCode && docLangs[0] !== 'eng' && docLangs[0] !== 'en') {
+            continue;
+          }
 
-        // 3. Catch leading or inverted Romance/German articles ("El...", "La...", "... , La", "... , El")
-        const hasForeignArticles = 
-          /^(el|la|los|las|un|una|il|lo|gli|le|o|os|as|um|uma|das|der|die|ein|eine)\b/i.test(cleanTitleLower) ||
-          /,\s*(el|la|los|las|un|una|il|lo|gli|le|o|os|as|um|uma|das|der|die|ein|eine)$/i.test(cleanTitleLower);
+          // Normalize accents and lowercase so "Caída" -> "caida", "Águias" -> "aguias"
+          const cleanTitleLower = doc.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
-        // 4. Catch common translation keywords (Spanish, French, Italian, Portuguese, German)
-        const hasForeignKeywords = /\b(edicion|edizione|edicao|edition|italiano|portugues|deutsch|french|caida|gigantes|mundo|mondo|senza|terra|aguilas|aguia|columna|pilastri|tinieblas|eternidad|alta finanza|nadel|siegeszug|winterdrachen)\b/i.test(cleanTitleLower);
+          // Catch leading or inverted Romance/German articles ("El...", "La...", "... , La", "... , El")
+          const hasForeignArticles = 
+            /^(el|la|los|las|un|una|il|lo|gli|le|o|os|as|um|uma|das|der|die|ein|eine)\b/i.test(cleanTitleLower) ||
+            /,\s*(el|la|los|las|un|una|il|lo|gli|le|o|os|as|um|uma|das|der|die|ein|eine)$/i.test(cleanTitleLower);
 
-        // 5. Catch multi-book box sets and raw publisher dump records
-        const isOmnibusOrFormatJunk = /\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(cleanTitleLower);
+          // Catch common translation keywords
+          const hasForeignKeywords = /\b(edicion|edizione|edicao|edition|italiano|portugues|deutsch|french|caida|gigantes|mundo|mondo|senza|terra|aguilas|aguia|columna|pilastri|tinieblas|eternidad|alta finanza|nadel|siegeszug|winterdrachen)\b/i.test(cleanTitleLower);
 
-        if (hasForeignArticles || hasForeignKeywords || isOmnibusOrFormatJunk) {
-          continue;
+          // Catch multi-book box sets and omnibus records
+          const isOmnibusOrFormatJunk = /\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(cleanTitleLower);
+
+          if (hasForeignArticles || hasForeignKeywords || isOmnibusOrFormatJunk) {
+            continue;
+          }
         }
 
         // 6. Extract primary display title (strip foreign half if slash-separated)
