@@ -493,9 +493,15 @@ try {
       for (const doc of data.docs) {
         if (!doc.title) continue;
 
-        const docLangs = Array.isArray(doc.language) ? doc.language : [];
-        const isExclusivelyNonEnglish = docLangs.length > 0 && !docLangs.includes('eng') && !docLangs.includes('en');
+       const docLangs = Array.isArray(doc.language) ? doc.language : [];
+        const primaryLang = docLangs[0] || 'eng';
+        const isEnglish = primaryLang === 'eng' || primaryLang === 'en';
 
+        // Detect foreign edition subtitles or common Spanish/Italian/Portuguese title markers
+        const isForeignTitle = /\b(edici[oó]n|edizione|edicao|italiano|portugu[eê]s|deutsche?|nunca|columna|pilastri|tinieblas)\b/i.test(doc.title);
+
+        // Strict English-only: skip standalone records that aren't primarily English
+        if (!isEnglish || isForeignTitle) continue;
         // Extract primary display title (strip Spanish side if slash-separated)
         let displayTitle = doc.title;
         if (displayTitle.includes('/')) {
@@ -527,7 +533,6 @@ try {
           }
         } else {
           // If this is a standalone translation work with no English match in catalog, skip it
-          if (isExclusivelyNonEnglish) continue;
 
           const coverId = doc.cover_i;
           const isbn = doc.isbn ? doc.isbn[0] : null;
