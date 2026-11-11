@@ -14,6 +14,7 @@ ENV NODE_ENV=production
 COPY --from=builder /app/dist ./dist
 COPY package.json server.js ./
 COPY server ./server
+COPY shared ./shared
 
 # All app data (the library.db database) is saved here.
 # Map this to a folder on the host, e.g. /mnt/user/appdata/personal-library on Unraid.

@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Personal Library</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+    <!-- Barcode reader for browsers without a built-in one (e.g. iPhone Safari) -->
+    <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js" defer></script>
   </head>
   <body class="bg-[#fbfbfd] text-slate-900 antialiased overflow-hidden">
     <div id="root"></div>
