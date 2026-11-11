@@ -225,14 +225,26 @@ useEffect(() => {
     }
 
     if (authMode === 'login') {
-      const match = users.find(u => u.email.toLowerCase() === cleanEmail && u.password === cleanPassword);
-      if (!match) {
-        setAuthError('Invalid email address or password. Try again or register.');
-        return;
-      }
-      setCurrentUser(match);
-      setAuthEmail('');
-      setAuthPassword('');
+      fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password: cleanPassword })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.error || !data.user) {
+            setAuthError(data.error || 'Invalid email address or password.');
+            return;
+          }
+          setCurrentUser(data.user);
+          setAuthEmail('');
+          setAuthPassword('');
+        })
+        .catch(err => {
+          console.error('Login failed:', err);
+          setAuthError('Could not connect to server. Please try again.');
+        });
+    }
     } else {
       const exists = users.some(u => u.email.toLowerCase() === cleanEmail);
       if (exists) {
