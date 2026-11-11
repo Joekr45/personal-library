@@ -1306,16 +1306,13 @@ try {
                     >
                       + Add to My Shelf
                     </button>
-                  )}
+                 )}
                 </div>
               </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
+            ))}
+          </div>
+        </div>
+      )}
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
