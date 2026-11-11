@@ -495,38 +495,39 @@ try {
 
        const docLangs = Array.isArray(doc.language) ? doc.language : [];
 
-       // Check if this book is in the user's collection (by title or ISBN)
+      // 1. Always preserve books in your personal collection
         const isDocOwned = 
           ownedTitleSet.has(doc.title.trim().toLowerCase()) || 
           ownedTitleSet.has(getCanonicalTitleKey(doc.title)) ||
           (doc.isbn && doc.isbn.some(code => ownedIsbnSet.has(code)));
 
-        // Only apply language/format filters if the book is NOT already owned
         if (!isDocOwned) {
-          // If Open Library explicitly lists foreign languages, drop it unless English is primary
-          const nonEnglishCodes = ['spa', 'fre', 'ita', 'ger', 'deu', 'por', 'dut', 'nld', 'rus', 'chi', 'zho', 'jpn', 'pol', 'swe', 'dan', 'nor'];
-          const hasForeignLanguageCode = docLangs.some(l => nonEnglishCodes.includes(l.toLowerCase()));
-          if (hasForeignLanguageCode && docLangs[0] !== 'eng' && docLangs[0] !== 'en') {
+          // 2. Metadata Language Tag Gate
+          // If Open Library tagged languages and none are English, drop it
+          const rawLangs = Array.isArray(doc.language) ? doc.language : [doc.language];
+          const langs = rawLangs.filter(Boolean).map(l => String(l).toLowerCase().trim());
+          if (langs.length > 0 && !langs.some(l => l === 'eng' || l === 'en' || l.startsWith('en-'))) {
             continue;
           }
 
-          // Normalize accents and lowercase so "Caída" -> "caida", "Águias" -> "aguias"
-          const cleanTitleLower = doc.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+          // 3. Normalize Unicode accents (e.g. "Caída" -> "caida", "Águias" -> "aguias")
+          const cleanTitle = doc.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
-          // Catch leading or inverted Romance/German articles ("El...", "La...", "... , La", "... , El")
-          const hasForeignArticles = 
-            /^(el|la|los|las|un|una|il|lo|gli|le|o|os|as|um|uma|das|der|die|ein|eine)\b/i.test(cleanTitleLower) ||
-            /,\s*(el|la|los|las|un|una|il|lo|gli|le|o|os|as|um|uma|das|der|die|ein|eine)$/i.test(cleanTitleLower);
+          // 4. Safe Romance/Germanic Articles (strictly non-English, avoiding "die" or "un")
+          const startsWithForeignArticle = /^(el|la|los|las|les|des|du|il|lo|gli|le|o|os|as|das|der)\s+/i.test(cleanTitle);
+          const endsWithInvertedArticle = /,\s*(el|la|los|las|les|des|du|il|lo|gli|le|o|os|as|das|der)$/i.test(cleanTitle);
 
-          // Catch common translation keywords
-          const hasForeignKeywords = /\b(edicion|edizione|edicao|edition|italiano|portugues|deutsch|french|caida|gigantes|mundo|mondo|senza|terra|aguilas|aguia|columna|pilastri|tinieblas|eternidad|alta finanza|nadel|siegeszug|winterdrachen)\b/i.test(cleanTitleLower);
+          // 5. Universal Foreign Connectors & Common Single Words (catches untagged translations like "Nunca")
+          const hasForeignGrammar = /\b(nunca|de\s+la|de\s+los|del|della|degli|pour|avec|sobre|und|der\s+tag|roman)\b/i.test(cleanTitle);
 
-          // Catch multi-book box sets and omnibus records
-          const isOmnibusOrFormatJunk = /\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(cleanTitleLower);
+          // 6. Foreign Volume Markers & Multi-Book Sets
+          const hasForeignVolume = /\b(tome\s*\d+|volumen|edici[oó]n|edizione|edicao)\b/i.test(cleanTitle);
+          const isOmnibus = /\b(\d+\s*books?\s*set|box\s*set|collection|trilogy\s*set|paperback)\b/i.test(cleanTitle);
 
-          if (hasForeignArticles || hasForeignKeywords || isOmnibusOrFormatJunk) {
+          if (startsWithForeignArticle || endsWithInvertedArticle || hasForeignGrammar || hasForeignVolume || isOmnibus) {
             continue;
           }
+        }
         }
 
         // 6. Extract primary display title (strip foreign half if slash-separated)
