@@ -539,16 +539,6 @@ try {
       setIsSearchingAuthor(false);
     }
   };
-      }
-
-      setAuthorSearchError(`No catalog records found matching "${query}". Check spelling or try a different name.`);
-    } catch (err) {
-      console.warn('Author query fallback active:', err);
-      setAuthorSearchError(`Connection timeout or rate limit from catalog.`);
-    } finally {
-      setIsSearchingAuthor(false);
-    }
-  };
 
   const libraryAuthors = useMemo(() => {
     const authorMap = {};
