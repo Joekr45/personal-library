@@ -55,6 +55,44 @@ const authorKey = (name) => {
   return parts[parts.length - 1] || '';
 };
 
+// Catalog language tags are often missing or wrong (a Spanish translation tagged as English,
+// or not tagged at all), so we also look at the title itself.
+const FOREIGN_WORDS = new Set([
+  // Spanish / Portuguese
+  'el', 'los', 'las', 'del', 'una', 'unos', 'y', 'por', 'para', 'con', 'sin', 'sobre', 'entre', 'hasta', 'como', 'mundo',
+  'um', 'uma', 'dos', 'das', 'na', 'nas', 'nos', 'em', 'pelo', 'pela', 'sem',
+  // French
+  'le', 'les', 'des', 'du', 'et', 'une', 'dans', 'sur', 'pour', 'avec', 'sans', 'aux', 'au', 'est',
+  // German
+  'der', 'das', 'und', 'ein', 'eine', 'einer', 'im', 'vom', 'zum', 'zur', 'mit', 'von', 'aus', 'auf', 'nicht', 'ist', 'dem', 'den',
+  // Italian
+  'il', 'lo', 'gli', 'della', 'delle', 'dei', 'di', 'nel', 'nella', 'senza', 'per', 'tra', 'fra',
+  // Dutch / Scandinavian
+  'het', 'een', 'van', 'op', 'och', 'att', 'af', 'og', 'til', 'fra', 'med', 'ikke', 'och', 'av', 'paa', 'pa',
+  // shared
+  'la', 'de', 'en', 'un'
+]);
+const ENGLISH_WORDS = new Set([
+  'the', 'of', 'and', 'to', 'for', 'from', 'with', 'by', 'at', 'is', 'are', 'was', 'my', 'your', 'his', 'her', 'their',
+  'our', 'into', 'over', 'under', 'after', 'before', 'without', 'night', 'day', 'man', 'world', 'time', 'love', 'house',
+  'war', 'fire', 'water', 'blood', 'dead', 'death', 'last', 'first', 'black', 'white', 'secret', 'lies', 'lie', 'down',
+  'key', 'eye', 'needle', 'fall', 'giants', 'winter', 'edge', 'eternity', 'evening', 'morning', 'column', 'code', 'zero'
+]);
+
+export function looksEnglish(title, languages) {
+  const text = String(title || '');
+  // Other alphabets: Cyrillic, Greek, Hebrew, Arabic, Asian scripts…
+  if (/[\u0370-\u03ff\u0400-\u04ff\u0590-\u06ff\u0e00-\u0e7f\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(text)) return false;
+  if (Array.isArray(languages) && languages.length > 0 && !languages.includes('eng')) return false;
+  const words = text.toLowerCase().replace(/['’]/g, ' ').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const foreign = words.filter(w => FOREIGN_WORDS.has(w)).length;
+  const english = words.filter(w => ENGLISH_WORDS.has(w)).length;
+  const accented = /[àáâãäåæçèéêëìíîïñòóôõöøùúûüýÿœßğış]/i.test(text);
+  if (accented && english === 0) return false;
+  if (foreign > 0 && foreign >= english) return false;
+  return true;
+}
+
 export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' } = {}) {
   const cache = new Map();
 
@@ -407,9 +445,11 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
     const author = await getJson(`https://openlibrary.org/authors/${authorKey}.json`);
     const name = author?.name || author?.personal_name || '';
 
-    const fields = 'key,title,subtitle,first_publish_year,cover_i,edition_count,language,author_key,author_name';
+    // "lang=en" asks Open Library to pick each work's English edition when there is one, and
+    // "editions.*" returns that edition's title and language.
+    const fields = 'key,title,subtitle,first_publish_year,cover_i,edition_count,language,author_key,author_name,editions,editions.title,editions.language';
     const pages = await Promise.all([1, 2].map(page =>
-      getJson(`https://openlibrary.org/search.json?author_key=${encodeURIComponent(authorKey)}&fields=${fields}&limit=500&page=${page}&sort=old`)
+      getJson(`https://openlibrary.org/search.json?author_key=${encodeURIComponent(authorKey)}&fields=${fields}&lang=en&limit=500&page=${page}&sort=old`)
     ));
     const docs = pages.flatMap(p => p?.docs || []);
 
@@ -445,11 +485,21 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
     for (const d of docs) {
       // Translations that Open Library lists as separate works (no English edition) are skipped;
       // they appear as editions when choosing a cover instead.
-      if (!isEnglishOrUnknown(d.language)) continue;
+      const edition = d.editions?.docs?.[0];
+      const editionLangs = (edition?.language || []).map(l => String(l).replace('/languages/', ''));
+      let title = d.title;
+      if (editionLangs.length > 0) {
+        // Open Library told us which edition it would show: trust its language.
+        if (!editionLangs.includes('eng')) continue;
+        title = edition.title || d.title;
+        if (!looksEnglish(title, ['eng'])) continue;
+      } else if (!isEnglishOrUnknown(d.language) || !looksEnglish(d.title, d.language)) {
+        continue;
+      }
       addBook({
         id: String(d.key || '').replace('/works/', ''),
         workKey: d.key || null,
-        title: d.title,
+        title,
         subtitle: d.subtitle || null,
         year: d.first_publish_year ? String(d.first_publish_year) : null,
         cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
@@ -465,7 +515,7 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
       const v = item.volumeInfo || {};
       // Only books actually credited to this author, in English
       if (!(v.authors || []).some(a => surname(a) === surname(name) && a.toLowerCase().includes(name.toLowerCase().split(/\s+/)[0]))) continue;
-      if (v.language && v.language !== 'en') continue;
+      if ((v.language && v.language !== 'en') || !looksEnglish(v.title)) continue;
       addBook({
         id: `g-${item.id}`,
         workKey: null,

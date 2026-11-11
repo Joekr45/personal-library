@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createLookup } from '../server/lookup.js';
+import { createLookup, looksEnglish } from '../server/lookup.js';
 import { createServer } from '../server/app.js';
 
 const json = (body, status = 200) => ({ ok: status === 200, status, headers: { get: () => null }, json: async () => body });
@@ -19,7 +19,16 @@ const OL_DOCS = [
   { key: '/works/OL7W', title: 'Random pamphlet', edition_count: 1, author_name: ['Ken Follett'] },
   { key: '/works/OL8W', title: 'A Column of Fire', first_publish_year: 2017, cover_i: 108, edition_count: 40, language: ['eng'], author_name: ['Ken Follett'] },
   { key: '/works/OL9W', title: 'The Heist', first_publish_year: 1990, edition_count: 3, language: ['eng'], author_name: ['Ken Follett', 'Rene Louis Maurice'] },
-  { key: '/works/OL10W', title: 'Summary of A Column of Fire', first_publish_year: 2018, edition_count: 1, language: ['eng'], author_name: ['Ken Follett'] }
+  { key: '/works/OL10W', title: 'Summary of A Column of Fire', first_publish_year: 2018, edition_count: 1, language: ['eng'], author_name: ['Ken Follett'] },
+  // Real-world messiness: translations with missing or wrong language tags
+  { key: '/works/OL11W', title: 'Die Säulen der Erde', first_publish_year: 1990, edition_count: 30, author_name: ['Ken Follett'] },
+  { key: '/works/OL12W', title: 'Mundo sin fin', first_publish_year: 2007, edition_count: 12, language: ['eng', 'spa'], author_name: ['Ken Follett'] },
+  { key: '/works/OL13W', title: 'Die Nadel', first_publish_year: 1979, edition_count: 9, author_name: ['Ken Follett'],
+    editions: { docs: [{ title: 'Die Nadel', language: ['ger'] }] } },
+  { key: '/works/OL14W', title: 'Столпы земли', first_publish_year: 2005, edition_count: 4, author_name: ['Ken Follett'] },
+  // A work whose main title is foreign but which has an English edition: shown under its English title
+  { key: '/works/OL15W', title: "L'Arme à l'œil", first_publish_year: 1978, cover_i: 115, edition_count: 200, language: ['fre', 'eng'], author_name: ['Ken Follett'],
+    editions: { docs: [{ title: 'Eye of the Needle', language: ['eng'] }] } }
 ];
 
 const GOOGLE = {
@@ -63,6 +72,10 @@ test('bibliography: one entry per book, no translations, no junk, includes new r
   assert.ok(pillars.cover.includes('/101-'));
 
   assert.ok(!titles.includes('Los pilares de la Tierra'), 'Spanish-only work skipped');
+  for (const t of ['Die Säulen der Erde', 'Mundo sin fin', 'Die Nadel', 'Столпы земли', "L'Arme à l'œil"]) {
+    assert.ok(!titles.includes(t), `translation shown: ${t}`);
+  }
+  assert.ok(titles.includes('Eye of the Needle'), 'English edition title used');
   assert.ok(!titles.some(t => /box set|summary/i.test(t)), 'junk removed');
   assert.ok(!titles.includes('Random pamphlet'), 'noise removed');
   assert.equal(titles.filter(t => t.startsWith('Fall of Giants')).length, 1, 'subtitle variant merged');
@@ -118,4 +131,16 @@ test('author endpoints and per-person hidden list', async () => {
     await new Promise((r) => server.close(r));
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+test('looksEnglish: translated titles vs English titles', () => {
+  const foreign = ['Los pilares de la Tierra', 'Die Säulen der Erde', 'Les Piliers de la terre', 'I pilastri della terra',
+    'De pijlers van de aarde', 'Jordens søjler', 'Столпы земли', '大聖堂', 'Un mondo senza fine', 'Mundo sin fin',
+    'La caída de los gigantes', 'Winter der Welt', 'Der Mann aus St. Petersburg', 'Una columna de fuego', 'Nacht über den Wassern'];
+  const english = ['The Pillars of the Earth', 'World Without End', 'Fall of Giants', 'Night Over Water', 'Code to Zero',
+    'Whiteout', 'Hornet Flight', 'Jackdaws', 'Never', 'Lie Down with Lions', 'Triple', 'Paper Money', 'Eye of the Needle',
+    'The Key to Rebecca', 'A Column of Fire', 'On Wings of Eagles', 'The Third Twin', 'Storm Island', 'Under the Dome'];
+  for (const t of foreign) assert.equal(looksEnglish(t), false, t);
+  for (const t of english) assert.equal(looksEnglish(t), true, t);
+  assert.equal(looksEnglish('Triple', ['spa']), false, 'language tag says Spanish');
 });
