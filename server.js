@@ -86,9 +86,17 @@ app.get('/api/library', (req, res) => {
 
 app.post('/api/library', (req, res) => {
   try {
-    const libraryData = req.body;
-    fs.writeFileSync(LIBRARY_FILE, JSON.stringify(libraryData, null, 2), 'utf8');
-    res.json({ success: true });
+    const incomingData = req.body;
+    let currentData = {};
+    try {
+      currentData = JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8') || '{}');
+    } catch (e) {
+      currentData = {};
+    }
+
+    const mergedData = { ...currentData, ...incomingData };
+    fs.writeFileSync(LIBRARY_FILE, JSON.stringify(mergedData, null, 2), 'utf8');
+    res.json({ success: true, library: mergedData });
   } catch (err) {
     res.status(500).json({ error: 'Failed to persist library data' });
   }
