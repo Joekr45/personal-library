@@ -26,6 +26,17 @@ const OL_DOCS = [
   { key: '/works/OL13W', title: 'Die Nadel', first_publish_year: 1979, edition_count: 9, author_name: ['Ken Follett'],
     editions: { docs: [{ title: 'Die Nadel', language: ['ger'] }] } },
   { key: '/works/OL14W', title: 'Столпы земли', first_publish_year: 2005, edition_count: 4, author_name: ['Ken Follett'] },
+  // From a real screenshot: untagged translations and display junk
+  { key: '/works/OL20W', title: 'Nigdy', first_publish_year: 2021, cover_i: 120, edition_count: 2, author_name: ['Ken Follett'] },
+  { key: '/works/OL21W', title: 'Nunca', first_publish_year: 2021, cover_i: 121, edition_count: 3, author_name: ['Ken Follett'] },
+  { key: '/works/OL22W', title: 'Stonehenge', first_publish_year: 2025, cover_i: 122, edition_count: 2, author_name: ['Ken Follett'] },
+  { key: '/works/OL23W', title: 'Igła', first_publish_year: 2018, cover_i: 123, edition_count: 2, language: ['eng'], author_name: ['Ken Follett'] },
+  { key: '/works/OL24W', title: 'Trilogía The Century', first_publish_year: 2021, cover_i: 124, edition_count: 1, language: ['eng'], author_name: ['Ken Follett'] },
+  { key: '/works/OL25W', title: 'Ken Follett 12 Copy Floor Display with Special Header', first_publish_year: 2017, edition_count: 1, language: ['eng'], author_name: ['Ken Follett'] },
+  { key: '/works/OL26W', title: 'The Armour of Light (The Kingsbridge Novels, 5)', first_publish_year: 2023, cover_i: 126, edition_count: 30, language: ['eng'], author_name: ['Ken Follett'] },
+  { key: '/works/OL27W', title: 'Armor of Light', first_publish_year: 2023, cover_i: 127, edition_count: 5, language: ['eng'], author_name: ['Ken Follett'] },
+  // Untagged, but Google Books confirms it's an English book
+  { key: '/works/OL28W', title: 'Never', first_publish_year: 2021, cover_i: 128, edition_count: 8, author_name: ['Ken Follett'] },
   // A work whose main title is foreign but which has an English edition: shown under its English title
   { key: '/works/OL15W', title: "L'Arme à l'œil", first_publish_year: 1978, cover_i: 115, edition_count: 200, language: ['fre', 'eng'], author_name: ['Ken Follett'],
     editions: { docs: [{ title: 'Eye of the Needle', language: ['eng'] }] } }
@@ -36,6 +47,9 @@ const GOOGLE = {
     { id: 'new1', volumeInfo: { title: 'Circle of Days', authors: ['Ken Follett'], publishedDate: '2025-09-30', language: 'en', industryIdentifiers: [{ type: 'ISBN_13', identifier: '9780593300381' }], imageLinks: { thumbnail: 'http://books.google.com/x?id=new1&zoom=1' } } },
     { id: 'es1', volumeInfo: { title: 'El círculo de los días', authors: ['Ken Follett'], publishedDate: '2025', language: 'es' } },
     { id: 'other', volumeInfo: { title: 'Gardening Basics', authors: ['Ken Smith'], publishedDate: '2024', language: 'en' } },
+    { id: 'never', volumeInfo: { title: 'Never', authors: ['Ken Follett'], publishedDate: '2021-11-09', language: 'en' } },
+    { id: 'pl', volumeInfo: { title: 'Lot ćmy', authors: ['Ken Follett'], publishedDate: '2022', language: 'en' } },
+    { id: 'nolang', volumeInfo: { title: 'Noc nad oceanem', authors: ['Ken Follett'], publishedDate: '2024' } },
     { id: 'dup', volumeInfo: { title: 'A Column of Fire', authors: ['Ken Follett'], publishedDate: '2018', language: 'en', industryIdentifiers: [{ type: 'ISBN_13', identifier: '9780525954972' }] } }
   ]
 };
@@ -76,6 +90,12 @@ test('bibliography: one entry per book, no translations, no junk, includes new r
     assert.ok(!titles.includes(t), `translation shown: ${t}`);
   }
   assert.ok(titles.includes('Eye of the Needle'), 'English edition title used');
+  for (const t of ['Nigdy', 'Nunca', 'Stonehenge', 'Igła', 'Trilogía The Century', 'Lot ćmy', 'Noc nad oceanem']) {
+    assert.ok(!titles.includes(t), `translation shown: ${t}`);
+  }
+  assert.ok(!titles.some(t => /Floor Display/.test(t)), 'display junk removed');
+  assert.equal(titles.filter(t => /arm(ou|o)r of light/i.test(t)).length, 1, 'Armour/Armor merged');
+  assert.ok(titles.includes('Never'), 'untagged book confirmed by Google is kept');
   assert.ok(!titles.some(t => /box set|summary/i.test(t)), 'junk removed');
   assert.ok(!titles.includes('Random pamphlet'), 'noise removed');
   assert.equal(titles.filter(t => t.startsWith('Fall of Giants')).length, 1, 'subtitle variant merged');
@@ -135,7 +155,7 @@ test('author endpoints and per-person hidden list', async () => {
 
 test('looksEnglish: translated titles vs English titles', () => {
   const foreign = ['Los pilares de la Tierra', 'Die Säulen der Erde', 'Les Piliers de la terre', 'I pilastri della terra',
-    'De pijlers van de aarde', 'Jordens søjler', 'Столпы земли', '大聖堂', 'Un mondo senza fine', 'Mundo sin fin',
+    'De pijlers van de aarde', 'Jordens søjler', 'Igła', 'Lot ćmy', 'Noc nad oceanem', 'Trilogía The Century', 'Столпы земли', '大聖堂', 'Un mondo senza fine', 'Mundo sin fin',
     'La caída de los gigantes', 'Winter der Welt', 'Der Mann aus St. Petersburg', 'Una columna de fuego', 'Nacht über den Wassern'];
   const english = ['The Pillars of the Earth', 'World Without End', 'Fall of Giants', 'Night Over Water', 'Code to Zero',
     'Whiteout', 'Hornet Flight', 'Jackdaws', 'Never', 'Lie Down with Lions', 'Triple', 'Paper Money', 'Eye of the Needle',
