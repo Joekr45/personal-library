@@ -46,6 +46,12 @@ import SettingsModal from './src/SettingsModal.jsx';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
+// Alphabetical by title, the way libraries do it: "The", "A" and "An" at the start are ignored
+// ("The Pillars of the Earth" is filed under P), and numbers sort naturally (2 before 10).
+const sortKey = (title) => String(title || '').trim().replace(/^(the|a|an)\s+/i, '');
+const titleCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+const byTitle = (a, b) => titleCollator.compare(sortKey(a.workTitle), sortKey(b.workTitle)) || titleCollator.compare(a.author || '', b.author || '');
+
 const COVER_THEMES = [
   { bg: 'from-amber-900 via-stone-900 to-black', accent: 'border-amber-400/40 text-amber-200', tag: 'bg-amber-500/20 text-amber-300' },
   { bg: 'from-slate-900 via-blue-950 to-black', accent: 'border-blue-400/40 text-blue-200', tag: 'bg-blue-500/20 text-blue-300' },
@@ -316,7 +322,7 @@ export default function App() {
       if (activeSection === 'completed') return b.readingStatus === 'Completed' && b.owned !== false;
       if (activeSection === 'wishlist') return b.owned === false;
       return true;
-    });
+    }).sort(byTitle);
   }, [books, activeSection, searchQuery]);
 
   const totalPages = Math.ceil(filteredBooks.length / ITEMS_PER_PAGE);
