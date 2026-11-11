@@ -75,8 +75,12 @@ useEffect(() => {
         if (serverLib && typeof serverLib === 'object' && Object.keys(serverLib).length > 0) {
           setUserLibraries(prev => ({ ...prev, ...serverLib }));
         }
+        setIsLibraryLoaded(true);
       })
-      .catch(err => console.warn('Could not sync library from server:', err));
+      .catch(err => {
+        console.warn('Could not sync library from server:', err);
+        setIsLibraryLoaded(true);
+      });
   }, []);
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('personal_library_current_user');
@@ -85,9 +89,9 @@ useEffect(() => {
 
   const [userLibraries, setUserLibraries] = useState(() => {
     const saved = localStorage.getItem('personal_library_data');
-    return saved ? JSON.parse(saved) : { 'usr-1': [] };
+return saved ? JSON.parse(saved) : {};
   });
-
+const [isLibraryLoaded, setIsLibraryLoaded] = useState(false);
   // Auth Screen Form State
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
   const [authEmail, setAuthEmail] = useState('');
@@ -110,14 +114,14 @@ useEffect(() => {
   }, [currentUser]);
 
  useEffect(() => {
-   if (!userLibraries || Object.keys(userLibraries).length === 0) return;
+if (!isLibraryLoaded || !currentUser || !userLibraries || !userLibraries[currentUser.id]) return;
     localStorage.setItem('personal_library_data', JSON.stringify(userLibraries));
     fetch('/api/library', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userLibraries)
     }).catch(err => console.warn('Could not save library to server:', err));
-  }, [userLibraries]);
+}, [userLibraries, currentUser, isLibraryLoaded]);
 
   const books = currentUser ? userLibraries[currentUser.id] || [] : [];
   const setBooksForCurrent = (updater) => {
