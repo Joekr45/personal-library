@@ -445,7 +445,8 @@ try {
 
     try {
       const cleanQ = encodeURIComponent(query);
-      const res = await fetch(`https://openlibrary.org/search.json?q=${cleanQ}&mode=everything&limit=25`, {
+      // 1. Search Open Library by author specific field with a higher capacity
+      const res = await fetch(`https://openlibrary.org/search.json?author=${cleanQ}&limit=100`, {
         mode: 'cors'
       }).catch(() => null);
 
@@ -466,40 +467,78 @@ try {
 
         const resolvedDisplayName = exactAuthorMatch || formattedQueryName;
 
-        const foundBooks = data.docs
-          .filter(doc => doc.title)
-          .slice(0, 24)
-          .map((doc, idx) => {
-            const coverId = doc.cover_i;
-            const isbn = doc.isbn ? doc.isbn[0] : null;
-            const cover = coverId
-              ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg`
-              : isbn
-              ? `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`
-              : null;
+        // Create a fast lookup Set of normalized owned titles and ISBNs
+        const ownedTitleSet = new Set(
+          (books || []).map(b => (b.workTitle || b.title || '').trim().toLowerCase())
+        );
+        const ownedIsbnSet = new Set(
+          (books || []).flatMap(b => (b.editions || []).map(e => (e.isbn || '').trim()))
+        );
 
-            const matchingAuthor = (doc.author_name || []).find(a =>
-              a.toLowerCase().includes(query.toLowerCase())
-            ) || doc.author_name?.[0] || resolvedDisplayName;
+        // Deduplicate works by lowercase title
+        const seenTitles = new Set();
+        const foundBooks = [];
 
-            return {
-              id: doc.key || `ol-${idx}-${Date.now()}`,
-              title: doc.title,
-              author: matchingAuthor,
-              publishedDate: doc.first_publish_year ? String(doc.first_publish_year) : 'Unknown',
-              description: 'Catalog bibliography entry.',
-              coverUrl: cover,
-              isbn: isbn || 'Pending Scan',
-              category: (doc.subject && doc.subject[0]) || 'Fiction'
-            };
+        for (const doc of data.docs) {
+          if (!doc.title) continue;
+          const normalizedTitle = doc.title.trim().toLowerCase();
+          if (seenTitles.has(normalizedTitle)) continue;
+          seenTitles.add(normalizedTitle);
+
+          const coverId = doc.cover_i;
+          const isbn = doc.isbn ? doc.isbn[0] : null;
+          const cover = coverId
+            ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg`
+            : isbn
+            ? `https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`
+            : null;
+
+          const matchingAuthor = (doc.author_name || []).find(a =>
+            a.toLowerCase().includes(query.toLowerCase())
+          ) || doc.author_name?.[0] || resolvedDisplayName;
+
+          // Check if this work exists in the user's library
+          const isOwned =
+            ownedTitleSet.has(normalizedTitle) ||
+            (isbn && ownedIsbnSet.has(isbn));
+
+          foundBooks.push({
+            id: doc.key || `ol-${foundBooks.length}-${Date.now()}`,
+            title: doc.title,
+            author: matchingAuthor,
+            publishedDate: doc.first_publish_year ? String(doc.first_publish_year) : 'Unknown',
+            description: 'Catalog bibliography entry.',
+            coverUrl: cover,
+            isbn: isbn || 'Pending Scan',
+            category: (doc.subject && doc.subject[0]) || 'Fiction',
+            isOwned: Boolean(isOwned)
           });
+        }
+
+        // Sort so owned books appear first, followed by publication year descending
+        foundBooks.sort((a, b) => {
+          if (a.isOwned !== b.isOwned) return a.isOwned ? -1 : 1;
+          const yearA = parseInt(a.publishedDate, 10) || 0;
+          const yearB = parseInt(b.publishedDate, 10) || 0;
+          return yearB - yearA;
+        });
 
         setViewingGlobalAuthor({
           name: resolvedDisplayName,
-          bio: `Catalog bibliography for ${resolvedDisplayName}.`,
+          bio: `Catalog bibliography for ${resolvedDisplayName}. (${foundBooks.filter(b => b.isOwned).length} of ${foundBooks.length} owned)`,
           books: foundBooks
         });
         return;
+      }
+
+      setAuthorSearchError(`No catalog records found matching "${query}". Check spelling or try a different name.`);
+    } catch (err) {
+      console.warn('Author query fallback active:', err);
+      setAuthorSearchError('Connection timeout or rate limit from catalog.');
+    } finally {
+      setIsSearchingAuthor(false);
+    }
+  };
       }
 
       setAuthorSearchError(`No catalog records found matching "${query}". Check spelling or try a different name.`);
@@ -1211,51 +1250,75 @@ try {
                     </h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                       {viewingGlobalAuthor.books?.map((item) => (
-                        <div key={item.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex gap-3 items-center">
-                          <div className="w-14 h-20 bg-slate-200 rounded-md overflow-hidden flex-shrink-0 shadow-2xs">
-                            {item.coverUrl ? (
-                              <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-xs font-bold text-slate-900 truncate" title={item.title}>
-                              {item.title}
-                            </div>
-                            <div className="text-[11px] text-slate-500">
-                              {item.publishedDate} • {item.category}
-                            </div>
-                            <button
-                              onClick={() => {
-                                const newBook = {
-                                  id: 'book-' + Date.now() + '-' + Math.random(),
-                                  workTitle: item.title,
-                                  author: item.author,
-                                  series: null,
-                                  seriesNumber: null,
-                                  owned: true,
-                                  readingStatus: 'Unread',
-                                  shelfLocation: 'Living Room Shelf',
-                                  customCoverUrl: item.coverUrl,
-                                  theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
-                                  editions: [{
-                                    id: `ed-${Date.now()}`,
-                                    title: item.title,
-                                    language: 'English',
-                                    format: 'Paperback',
-                                    isbn: item.isbn || 'Pending Scan',
-                                    published: item.publishedDate,
-                                    publisher: 'Publisher'
-                                  }]
-                                };
-                                setBooksForCurrent(prev => [newBook, ...prev]);
-                                alert(`Added "${item.title}" to your shelf!`);
-                              }}
-                              className="mt-2 px-2.5 py-1 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-semibold rounded-lg shadow-2xs"
-                            >
-                              + Add to My Shelf
-                            </button>
+                        <div 
+                key={item.id} 
+                className={`p-3 rounded-xl flex gap-3 items-center border transition-all ${
+                  item.isOwned 
+                    ? 'bg-emerald-50/50 border-emerald-200' 
+                    : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className={`w-14 h-20 bg-slate-200 rounded-md overflow-hidden flex-shrink-0 shadow-2xs transition-all ${
+                  item.isOwned ? '' : 'grayscale opacity-60 hover:opacity-100'
+                }`}>
+                  {item.coverUrl ? (
+                    <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-slate-400 text-[10px] text-center p-1">No Cover</div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-xs font-bold text-slate-900 truncate" title={item.title}>
+                      {item.title}
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {item.publishedDate} • {item.category}
+                  </div>
+                  
+                  {item.isOwned ? (
+                    <div className="inline-flex items-center gap-1 mt-2 px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-semibold rounded-md border border-emerald-200">
+                      <span>✓</span> In Collection
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        const newBook = {
+                          id: 'book-' + Date.now() + '-' + Math.random(),
+                          workTitle: item.title,
+                          author: item.author,
+                          series: null,
+                          seriesNumber: null,
+                          owned: true,
+                          readingStatus: 'Unread',
+                          shelfLocation: 'Living Room Shelf',
+                          customCoverUrl: item.coverUrl,
+                          theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
+                          editions: [{
+                            id: `ed-${Date.now()}`,
+                            title: item.title,
+                            language: 'English',
+                            format: 'Paperback',
+                            isbn: item.isbn || 'Pending Scan',
+                            published: item.publishedDate,
+                            publisher: 'Publisher'
+                          }]
+                        };
+                        setBooksForCurrent(prev => [newBook, ...prev]);
+                        // Instantly flip this work to owned in the local view
+                        setViewingGlobalAuthor(prev => prev ? ({
+                          ...prev,
+                          books: prev.books.map(b => b.id === item.id ? { ...b, isOwned: true } : b)
+                        }) : null);
+                      }}
+                      className="mt-2 px-2.5 py-1 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-semibold rounded-lg shadow-2xs cursor-pointer transition-colors"
+                    >
+                      + Add to My Shelf
+                    </button>
+                  )}
+                </div>
+              </div>
                           </div>
                         </div>
                       ))}
