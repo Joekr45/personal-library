@@ -33,7 +33,8 @@ import {
   Pencil,
   Menu,
   ImagePlus,
-  Settings
+  Settings,
+  Trophy
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
@@ -43,6 +44,11 @@ import CoverPicker from './src/CoverPicker.jsx';
 import AuthorPage from './src/AuthorPage.jsx';
 import SeriesPage from './src/SeriesPage.jsx';
 import SettingsModal from './src/SettingsModal.jsx';
+import ReadingPanel from './src/ReadingPanel.jsx';
+import StarRating from './src/StarRating.jsx';
+import MyYearPage, { UpNext } from './src/MyYearPage.jsx';
+import SortFilterBar, { SORTERS, EMPTY_FILTERS, applyFilters } from './src/SortFilterBar.jsx';
+import { statusChanges } from './src/reading.js';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -204,6 +210,21 @@ export default function App() {
   const [activeSection, setActiveSection] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('grid');
+
+  // Sort and filters for the book lists (remembered on this device)
+  const [sortBy, setSortBy] = useState(() => {
+    try { return localStorage.getItem('pl_sort') || 'title'; } catch { return 'title'; }
+  });
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const changeSort = (value) => {
+    setSortBy(value);
+    setCurrentPage(1);
+    try { localStorage.setItem('pl_sort', value); } catch { /* not important */ }
+  };
+  const changeFilters = (value) => {
+    setFilters(value);
+    setCurrentPage(1);
+  };
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 36;
 
@@ -305,7 +326,7 @@ export default function App() {
   }, [books, libraryAuthors]);
 
   const filteredBooks = useMemo(() => {
-    return books.filter(b => {
+    const matching = books.filter(b => {
       const q = searchQuery.toLowerCase();
       const matchesSearch =
         (b.workTitle || '').toLowerCase().includes(q) ||
@@ -322,8 +343,9 @@ export default function App() {
       if (activeSection === 'completed') return b.readingStatus === 'Completed' && b.owned !== false;
       if (activeSection === 'wishlist') return b.owned === false;
       return true;
-    }).sort(byTitle);
-  }, [books, activeSection, searchQuery]);
+    });
+    return applyFilters(matching, filters).sort(SORTERS[sortBy] || byTitle);
+  }, [books, activeSection, searchQuery, sortBy, filters]);
 
   const totalPages = Math.ceil(filteredBooks.length / ITEMS_PER_PAGE);
   const paginatedBooks = useMemo(() => {
@@ -783,6 +805,20 @@ export default function App() {
                 {counts.series}
               </span>
             </button>
+
+            <button
+              onClick={() => { setActiveSection('year'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'year'
+                  ? 'bg-orange-500 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Trophy className="w-4 h-4" />
+                <span>My Year</span>
+              </div>
+            </button>
           </div>
         </div>
 
@@ -882,6 +918,10 @@ export default function App() {
           )}
 
           {activeSection === 'series' && (
+            <UpNext books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} />
+          )}
+          {activeSection === 'series' && <div className="h-4" />}
+          {activeSection === 'series' && (
             <SeriesPage
               books={books}
               hardcoverConnected={Boolean(settings?.hardcover?.connected)}
@@ -893,7 +933,11 @@ export default function App() {
             />
           )}
 
-          {activeSection !== 'authors' && activeSection !== 'series' && (
+          {activeSection === 'year' && (
+            <MyYearPage books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} />
+          )}
+
+          {activeSection !== 'authors' && activeSection !== 'series' && activeSection !== 'year' && (
             <div className="space-y-6">
               <div className="flex items-baseline justify-between">
                 <div>
@@ -933,6 +977,14 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              <SortFilterBar
+                books={books}
+                sortBy={sortBy}
+                onSortChange={changeSort}
+                filters={filters}
+                onFiltersChange={changeFilters}
+              />
 
               {filteredBooks.length === 0 ? (
                 <div className="py-20 flex flex-col items-center justify-center text-center space-y-4 bg-white border border-dashed border-slate-300 rounded-3xl p-8">
@@ -1147,7 +1199,7 @@ export default function App() {
                       {['Unread', 'Reading', 'Completed'].map(status => (
                         <button
                           key={status}
-                          onClick={() => updateBook(selectedBook.id, { readingStatus: status })}
+                          onClick={() => updateBook(selectedBook.id, statusChanges(selectedBook, status))}
                           className={`py-2 text-xs rounded-xl font-semibold border transition-all ${
                             selectedBook.readingStatus === status
                               ? 'bg-orange-500 text-white border-orange-500 shadow-xs'
@@ -1161,6 +1213,8 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              <ReadingPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
 
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
@@ -1582,6 +1636,7 @@ function AppleBookCard({ book, onClick, onAuthorClick }) {
         >
           {book.author}
         </button>
+        {book.rating ? <StarRating value={book.rating} size="sm" /> : null}
         <div className="flex items-center justify-between pt-1 text-[10px]">
           <span className="text-slate-400 flex items-center gap-1 font-medium">
             <span className={`w-1.5 h-1.5 rounded-full ${book.readingStatus === 'Reading' ? 'bg-orange-500' : book.readingStatus === 'Completed' ? 'bg-emerald-500' : 'bg-slate-300'}`} />

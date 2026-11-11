@@ -77,3 +77,7 @@ api.resetUserPassword = (id, password) => request('POST', `/api/admin/users/${en
 api.removeUser = (id) => request('DELETE', `/api/admin/users/${encodeURIComponent(id)}`);
 api.listBackups = () => request('GET', '/api/admin/backups').then(d => d.backups);
 api.backupNow = () => request('POST', '/api/admin/backups').then(d => d.backups);
+
+// Reading goal
+api.getGoal = (year) => request('GET', `/api/me/goal?year=${encodeURIComponent(year)}`);
+api.setGoal = (year, goal) => request('PUT', '/api/me/goal', { year, goal });
