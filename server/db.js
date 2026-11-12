@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -72,6 +72,20 @@ function migrate(db) {
         CREATE TABLE settings (
           key   TEXT PRIMARY KEY,
           value TEXT NOT NULL
+        );
+      `);
+    }
+    if (current < 4) {
+      db.exec(`
+        -- Invite codes the Owner hands out; each lets one person create an account.
+        CREATE TABLE invites (
+          code       TEXT PRIMARY KEY,
+          created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          note       TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          expires_at TEXT NOT NULL,
+          used_by    TEXT REFERENCES users(id) ON DELETE SET NULL,
+          used_at    TEXT
         );
       `);
     }
