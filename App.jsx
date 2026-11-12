@@ -83,6 +83,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [hasUsers, setHasUsers] = useState(true);
+  const [signupMode, setSignupMode] = useState('invite'); // 'invite' | 'open' | 'closed'
+  // An invite link looks like https://your-server/?invite=K7QP-3MZD
+  const [inviteCode, setInviteCode] = useState(() => new URLSearchParams(window.location.search).get('invite') || '');
 
   // The signed-in user's books, loaded from the server.
   const [books, setBooks] = useState([]);
@@ -116,7 +119,9 @@ export default function App() {
   // On first load: ask the server whether we're already signed in.
   useEffect(() => {
     api.getSession()
-      .then(({ user, hasUsers }) => {
+      .then(({ user, hasUsers, signupMode: mode }) => {
+        setSignupMode(mode || 'open');
+        if (!user && new URLSearchParams(window.location.search).get('invite')) setAuthMode('register');
         setCurrentUser(user);
         setHasUsers(hasUsers);
         if (!hasUsers) setAuthMode('register');
@@ -300,7 +305,8 @@ export default function App() {
     try {
       const user = authMode === 'login'
         ? await api.login(cleanEmail, authPassword)
-        : await api.register(cleanEmail, authPassword, authDisplayName.trim());
+        : await api.register(cleanEmail, authPassword, authDisplayName.trim(), inviteCode.trim());
+      if (window.location.search.includes('invite=')) window.history.replaceState(null, '', window.location.pathname);
       setHasUsers(true);
       setCurrentUser(user);
       setAuthEmail('');
@@ -530,7 +536,7 @@ export default function App() {
             </p>
           </div>
 
-          <div className="flex bg-slate-800/80 p-1 rounded-2xl border border-slate-700/60 text-xs font-semibold">
+          {signupMode !== 'closed' && <div className="flex bg-slate-800/80 p-1 rounded-2xl border border-slate-700/60 text-xs font-semibold">
             <button
               type="button"
               onClick={() => { setAuthMode('login'); setAuthError(''); }}
@@ -549,9 +555,27 @@ export default function App() {
             >
               Create Account
             </button>
-          </div>
+          </div>}
 
           <form onSubmit={handleAuthSubmit} className="space-y-4">
+            {authMode === 'register' && hasUsers && signupMode === 'invite' && (
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1">
+                  Invite Code
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  placeholder="e.g. K7QP-3MZD"
+                  className="w-full px-4 py-2.5 bg-slate-800/90 text-sm font-mono tracking-widest text-white placeholder-slate-500 rounded-xl border border-slate-700 focus:outline-none focus:border-orange-500 transition-colors uppercase"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">Ask the library's owner for a code.</p>
+              </div>
+            )}
             {authMode === 'register' && (
               <div>
                 <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1">

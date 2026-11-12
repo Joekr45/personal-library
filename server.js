@@ -3,7 +3,10 @@
 // Settings (environment variables):
 //   PORT                port to listen on (default 80)
 //   DATA_DIR            folder where the database is saved (default ./data; /data in Docker)
-//   ALLOW_REGISTRATION  "false" to stop new people from creating accounts (the first account can always be created)
+//   SIGNUP_MODE         who can create accounts: "invite" (default: needs an invite code from the Owner),
+//                       "open" (anyone) or "closed" (nobody). The first account can always be created,
+//                       and the Owner can change this in Settings.
+//   ALLOW_REGISTRATION  older setting: "false" is the same as SIGNUP_MODE=closed
 //   GOOGLE_BOOKS_API_KEY optional; raises Google Books' daily lookup limit
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +21,7 @@ const server = createServer({
   dataDir: DATA_DIR,
   distDir: path.join(__dirname, 'dist'),
   allowRegistration: ALLOW_REGISTRATION,
+  signupMode: process.env.SIGNUP_MODE || (ALLOW_REGISTRATION ? 'invite' : 'closed'),
   googleApiKey: process.env.GOOGLE_BOOKS_API_KEY || '',
   startBackups: true
 });

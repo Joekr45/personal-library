@@ -163,6 +163,96 @@ function InstallSection() {
   );
 }
 
+// ---------- Owner: who can sign up, and invite codes ----------
+function SignupsAndInvites({ mode, onModeChange }) {
+  const [invites, setInvites] = useState(null);
+  const [note, setNote] = useState('');
+  const [days, setDays] = useState(7);
+  const [copied, setCopied] = useState(null);
+  const [error, setError] = useState('');
+  const load = () => api.listInvites().then(setInvites).catch(err => setError(err.message));
+  useEffect(() => { load(); }, []);
+
+  const linkFor = (code) => `${window.location.origin}/?invite=${code}`;
+  const copy = async (code) => {
+    try {
+      await navigator.clipboard.writeText(`You're invited to my book library! Open ${linkFor(code)} to create your account (invite code ${code}).`);
+      setCopied(code);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      setError(`Couldn't copy. The link is: ${linkFor(code)}`);
+    }
+  };
+  const create = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      const { code } = await api.createInvite(note.trim(), days);
+      setNote('');
+      await load();
+      copy(code);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const revoke = async (code) => {
+    await api.revokeInvite(code).catch(err => setError(err.message));
+    load();
+  };
+  const chip = { active: 'bg-emerald-100 text-emerald-800', used: 'bg-slate-100 text-slate-600', expired: 'bg-amber-100 text-amber-800' };
+
+  return (
+    <div className="space-y-3">
+      <div className="p-3 bg-slate-50 rounded-xl space-y-1.5">
+        <p className="font-bold text-slate-900">Who can create an account?</p>
+        {[
+          ['invite', 'Only people with an invite code', '(recommended)'],
+          ['open', 'Anyone who finds the website', ''],
+          ['closed', 'Nobody (no new accounts)', '']
+        ].map(([value, label, hint]) => (
+          <label key={value} className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="signup-mode" checked={mode === value} onChange={() => onModeChange(value)} className="accent-orange-500" />
+            <span>{label} <span className="text-slate-400">{hint}</span></span>
+          </label>
+        ))}
+      </div>
+
+      {mode === 'invite' && (
+        <div className="space-y-2">
+          <form onSubmit={create} className="flex gap-2 flex-wrap">
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Who is it for? (optional)" className={`${inputClass} flex-1 min-w-[9rem]`} />
+            <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Valid for" className="px-2 py-2 border border-slate-200 rounded-xl text-xs bg-white">
+              <option value={1}>1 day</option>
+              <option value={7}>7 days</option>
+              <option value={30}>30 days</option>
+            </select>
+            <button type="submit" className="px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold">Create invite</button>
+          </form>
+          <p className="text-[11px] text-slate-400">Each code works for one person. Creating one copies a ready-to-send message with the link.</p>
+          {error && <p className="text-red-600">{error}</p>}
+          {invites && invites.length > 0 && (
+            <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl">
+              {invites.map(inv => (
+                <li key={inv.code} className="p-2.5 flex items-center gap-2">
+                  <code className="font-mono font-bold text-slate-900 tracking-wider">{inv.code}</code>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${chip[inv.status]}`}>{inv.status === 'used' ? `used by ${inv.usedBy || '?'}` : inv.status}</span>
+                  <span className="flex-1 min-w-0 truncate text-[11px] text-slate-400">{inv.note || ''}</span>
+                  {inv.status === 'active' && (
+                    <>
+                      <button onClick={() => copy(inv.code)} className="text-[11px] font-semibold text-orange-600">{copied === inv.code ? 'Copied!' : 'Copy link'}</button>
+                      <button onClick={() => revoke(inv.code)} className="text-[11px] font-semibold text-slate-500">Revoke</button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------- Owner: accounts, sign-ups, backups ----------
 function OwnerSection({ currentUserId }) {
   const [data, setData] = useState(null);
@@ -232,10 +322,7 @@ function OwnerSection({ currentUserId }) {
                 </li>
               ))}
             </ul>
-            <label className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl cursor-pointer">
-              <input type="checkbox" checked={data.signupsOpen} disabled={busy} onChange={(e) => { const open = e.target.checked; setData(prev => ({ ...prev, signupsOpen: open })); act(() => api.setSignups(open)); }} className="w-4 h-4 accent-orange-500" />
-              <span><b>Allow new sign-ups.</b> Turn off once everyone in the family has an account.</span>
-            </label>
+<SignupsAndInvites mode={data.signupMode} onModeChange={(mode) => { setData(prev => ({ ...prev, signupMode: mode })); act(() => api.setSignupMode(mode)); }} />
           </>
         )}
       </Section>

@@ -47,7 +47,7 @@ class HttpError extends Error {
   }
 }
 
-export function createServer({ dataDir, distDir, allowRegistration = true, fetchImpl, googleApiKey, resolveHost, startBackups = false }) {
+export function createServer({ dataDir, distDir, allowRegistration = true, signupMode: defaultSignupMode, fetchImpl, googleApiKey, resolveHost, startBackups = false }) {
   const db = openDatabase(dataDir);
   const lookup = createLookup({ fetchImpl, googleApiKey });
   const covers = createCoverStore({ dataDir, fetchImpl, resolveHost });
@@ -60,11 +60,30 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
   const backups = createBackups({ db, dataDir });
   if (startBackups) backups.start();
 
-  // New sign-ups: the Owner's choice in Settings, otherwise the ALLOW_REGISTRATION setting.
-  const signupsOpen = () => {
-    const saved = getSetting('allow_registration');
-    return saved === null ? allowRegistration : saved === 'true';
+  // Who may create an account (after the first one, which is always allowed):
+  //   'invite' – only with an invite code from the Owner, 'open' – anyone, 'closed' – nobody.
+  // The Owner's choice in Settings wins; otherwise the server setting (SIGNUP_MODE / ALLOW_REGISTRATION).
+  const SIGNUP_MODES = ['invite', 'open', 'closed'];
+  const fallbackMode = SIGNUP_MODES.includes(defaultSignupMode) ? defaultSignupMode : allowRegistration ? 'open' : 'closed';
+  const signupMode = () => {
+    const saved = getSetting('signup_mode');
+    if (SIGNUP_MODES.includes(saved)) return saved;
+    if (getSetting('allow_registration') === 'false') return 'closed'; // older "sign-ups off" switch
+    return fallbackMode;
   };
+
+  // Invite codes look like "K7QP-3MZD": no 0/O or 1/I so they're easy to read out and type.
+  const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const newInviteCode = () => {
+    const bytes = crypto.randomBytes(8);
+    const chars = Array.from(bytes, b => CODE_LETTERS[b % CODE_LETTERS.length]).join('');
+    return `${chars.slice(0, 4)}-${chars.slice(4)}`;
+  };
+  const normalizeCode = (code) => {
+    const raw = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : raw;
+  };
+  const inviteStatus = (row) => (row.used_by || row.used_at ? 'used' : new Date(`${row.expires_at}Z`) < new Date() ? 'expired' : 'active');
 
   // Family sharing: each person chooses whether the rest of the family can see their library.
   const isSharing = (userId) => getSetting(`share:${userId}`) === 'true';
@@ -194,7 +213,8 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
     'GET /api/auth/me': (req) => {
       const user = userForSession(db, getCookie(req, SESSION_COOKIE));
       const { count } = db.prepare('SELECT COUNT(*) AS count FROM users').get();
-      return { status: 200, body: { user, hasUsers: count > 0, allowRegistration: signupsOpen() } };
+      const mode = count === 0 ? 'open' : signupMode();
+      return { status: 200, body: { user, hasUsers: count > 0, signupMode: mode, allowRegistration: mode !== 'closed' } };
     },
 
     'POST /api/auth/register': async (req) => {
@@ -204,8 +224,22 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       const displayName = cleanText(body.displayName, 60) || email.split('@')[0];
 
       const { count } = db.prepare('SELECT COUNT(*) AS count FROM users').get();
-      // The very first account can always be created; after that it depends on the setting.
-      if (count > 0 && !signupsOpen()) throw new HttpError(403, 'New sign-ups are turned off. Ask the library owner to add you.');
+      // The very first account can always be created; after that it depends on the sign-up mode.
+      const mode = count === 0 ? 'open' : signupMode();
+      if (mode === 'closed') throw new HttpError(403, 'New sign-ups are turned off. Ask the library owner to add you.');
+      let invite = null;
+      if (mode === 'invite') {
+        const ip = clientIp(req);
+        if (isLoginBlocked(ip)) throw new HttpError(429, 'Too many wrong codes. Please wait 15 minutes and try again.');
+        invite = db.prepare('SELECT * FROM invites WHERE code = ?').get(normalizeCode(body.inviteCode));
+        if (!invite || inviteStatus(invite) !== 'active') {
+          recordLoginFailure(ip);
+          throw new HttpError(403, invite && inviteStatus(invite) === 'expired'
+            ? 'That invite code has expired. Ask the library owner for a new one.'
+            : invite ? 'That invite code has already been used. Ask the library owner for a new one.'
+              : 'You need a valid invite code from the library owner to create an account.');
+        }
+      }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new HttpError(400, 'Please enter a valid email address.');
       if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters long.');
       if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
@@ -219,8 +253,20 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
         role: count === 0 ? 'Owner' : 'Member',
         color: USER_COLORS[count % USER_COLORS.length]
       };
-      db.prepare('INSERT INTO users (id, email, password_hash, display_name, role, color) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(user.id, user.email, hashPassword(password), user.display_name, user.role, user.color);
+      db.exec('BEGIN');
+      try {
+        db.prepare('INSERT INTO users (id, email, password_hash, display_name, role, color) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(user.id, user.email, hashPassword(password), user.display_name, user.role, user.color);
+        if (invite) {
+          // Use up the code (only if nobody else used it a moment ago)
+          const used = db.prepare("UPDATE invites SET used_by = ?, used_at = datetime('now') WHERE code = ? AND used_at IS NULL").run(user.id, invite.code);
+          if (used.changes === 0) throw new HttpError(403, 'That invite code has already been used. Ask the library owner for a new one.');
+        }
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
 
       const session = createSession(db, user.id);
       return {
@@ -312,14 +358,50 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
                (SELECT COUNT(*) FROM books b WHERE b.user_id = u.id) AS book_count
         FROM users u ORDER BY u.created_at
       `).all().map(u => ({ ...publicUser(u), createdAt: u.created_at, bookCount: u.book_count }));
-      return { status: 200, body: { users, signupsOpen: signupsOpen() } };
+      return { status: 200, body: { users, signupMode: signupMode(), signupsOpen: signupMode() !== 'closed' } };
     },
 
     'PUT /api/admin/signups': async (req) => {
       requireOwner(req);
-      const open = (await readJson(req)).open === true;
-      setSetting('allow_registration', open ? 'true' : 'false');
-      return { status: 200, body: { signupsOpen: open } };
+      const body = await readJson(req);
+      // { mode: 'invite' | 'open' | 'closed' }  (older form: { open: true/false })
+      const mode = SIGNUP_MODES.includes(body.mode) ? body.mode : body.open === true ? 'open' : body.open === false ? 'closed' : null;
+      if (!mode) throw new HttpError(400, 'Choose invite, open or closed.');
+      setSetting('signup_mode', mode);
+      return { status: 200, body: { signupMode: mode, signupsOpen: mode !== 'closed' } };
+    },
+
+    'GET /api/admin/invites': (req) => {
+      requireOwner(req);
+      const rows = db.prepare(`
+        SELECT i.*, u.display_name AS used_by_name FROM invites i LEFT JOIN users u ON u.id = i.used_by
+        ORDER BY i.created_at DESC LIMIT 100
+      `).all();
+      return {
+        status: 200,
+        body: {
+          invites: rows.map(r => ({
+            code: r.code,
+            note: r.note,
+            createdAt: `${r.created_at.replace(' ', 'T')}Z`,
+            expiresAt: `${r.expires_at.replace(' ', 'T')}Z`,
+            status: inviteStatus(r),
+            usedBy: r.used_by_name || null
+          }))
+        }
+      };
+    },
+
+    // Create an invite code: { note: "Mom", days: 7 }
+    'POST /api/admin/invites': async (req) => {
+      const owner = requireOwner(req);
+      const body = await readJson(req);
+      const days = Math.min(90, Math.max(1, Number(body.days) || 7));
+      const expires = new Date(Date.now() + days * 86400000).toISOString().slice(0, 19).replace('T', ' ');
+      let code = newInviteCode();
+      while (db.prepare('SELECT 1 FROM invites WHERE code = ?').get(code)) code = newInviteCode();
+      db.prepare('INSERT INTO invites (code, created_by, note, expires_at) VALUES (?, ?, ?, ?)').run(code, owner.id, cleanText(body.note, 60) || null, expires);
+      return { status: 201, body: { code, expiresAt: `${expires.replace(' ', 'T')}Z` } };
     },
 
     'GET /api/admin/backups': (req) => {
@@ -786,6 +868,12 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
         if (coverFile && req.method === 'GET') return serveCover(req, res, coverFile[1]);
         if (pathname === '/api/export/books.csv' && req.method === 'GET') return exportCsv(req, res);
         if (pathname === '/api/admin/backup/download' && req.method === 'GET') return downloadBackup(req, res);
+        const inviteRoute = pathname.match(/^\/api\/admin\/invites\/([A-Z0-9-]{4,20})$/);
+        if (inviteRoute && req.method === 'DELETE') {
+          requireOwner(req);
+          db.prepare('DELETE FROM invites WHERE code = ? AND used_at IS NULL').run(normalizeCode(inviteRoute[1]));
+          return sendJson(res, 200, { ok: true });
+        }
         const adminUser = pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})(\/password)?$/);
         let result;
         if (route) result = await route(req);

@@ -31,8 +31,8 @@ async function request(method, url, body) {
 export const api = {
   getSession: () => request('GET', '/api/auth/me'),
   login: (email, password) => request('POST', '/api/auth/login', { email, password }).then(d => d.user),
-  register: (email, password, displayName) =>
-    request('POST', '/api/auth/register', { email, password, displayName }).then(d => d.user),
+  register: (email, password, displayName, inviteCode) =>
+    request('POST', '/api/auth/register', { email, password, displayName, inviteCode }).then(d => d.user),
   logout: () => request('POST', '/api/auth/logout'),
 
   listBooks: () => request('GET', '/api/books').then(d => d.books),
@@ -91,3 +91,9 @@ api.family = () => request('GET', '/api/family');
 api.bulkAdd = (books) => request('POST', '/api/books/bulk', { books });
 api.newReleases = () => request('GET', '/api/new-releases');
 api.dismissRelease = (id) => request('POST', '/api/new-releases/dismiss', { id });
+
+// Invites (owner)
+api.setSignupMode = (mode) => request('PUT', '/api/admin/signups', { mode });
+api.listInvites = () => request('GET', '/api/admin/invites').then(d => d.invites);
+api.createInvite = (note, days) => request('POST', '/api/admin/invites', { note, days });
+api.revokeInvite = (code) => request('DELETE', `/api/admin/invites/${encodeURIComponent(code)}`);

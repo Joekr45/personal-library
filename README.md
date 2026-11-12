@@ -11,7 +11,7 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - The first account created becomes the library's **Owner**; everyone after that is a **Member**.
 - Each account has its own books. Nobody can see or change another person's books.
 - Passwords are stored securely hashed (scrypt); sign-in uses a secure cookie that lasts 90 days.
-- To stop new people from signing up, set the environment variable `ALLOW_REGISTRATION=false`.
+- **Sign-ups are invite-only by default.** The Owner creates invite codes in Settings → Family accounts (each works once, valid 1/7/30 days) and sends the link (`https://your-server/?invite=CODE`), which fills in the code. Settings also lets the Owner switch to "anyone" or "nobody". Server default can be set with `SIGNUP_MODE=invite|open|closed`.
 
 ## Reading life
 
