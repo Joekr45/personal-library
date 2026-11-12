@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { openDatabase } from './db.js';
 import { createLookup } from './lookup.js';
-import { createCoverStore, CoverError, COVER_CONTENT_TYPES } from './covers.js';
+import { createCoverStore, CoverError, COVER_CONTENT_TYPES, isPrivateAddress } from './covers.js';
 import { createHardcover, HardcoverError, cleanToken } from './hardcover.js';
 import { createBackups } from './backups.js';
 import { classifyCode } from '../shared/isbn.js';
@@ -155,7 +155,17 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     ...(isHttps(req) ? ['Secure'] : [])
   ].join('; ');
 
-  const clientIp = (req) => req.socket.remoteAddress || 'unknown';
+  // The visitor's real address. Behind a reverse proxy (nginx, Cloudflare) every request arrives from
+  // the proxy, so the real address is taken from the headers the proxy adds, but only when the
+  // request really came through a proxy on the home network (so nobody can fake it from outside).
+  const clientIp = (req) => {
+    const direct = String(req.socket.remoteAddress || 'unknown').replace(/^::ffff:/, '');
+    if (!isPrivateAddress(direct)) return direct;
+    const forwarded = req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] ||
+      String(req.headers['x-forwarded-for'] || '').split(',')[0];
+    const ip = String(forwarded || '').trim();
+    return /^[0-9a-fA-F.:]{3,45}$/.test(ip) ? ip : direct;
+  };
 
   const requireUser = (req) => {
     const user = userForSession(db, getCookie(req, SESSION_COOKIE));
