@@ -215,3 +215,15 @@ test('lending history is cleaned up and kept', async () => {
   const lent = (await c('PUT', `/api/books/${b.id}`, { loans: [{ to: '  Sam ', lentOn: '2026-11-01', returnedOn: 'soon', extra: 'x' }, { to: '' }] })).body.book;
   assert.deepEqual(lent.loans, [{ to: 'Sam', lentOn: '2026-11-01', returnedOn: null }]);
 });
+
+test('behind a proxy, each visitor is blocked separately (not everyone at once)', async () => {
+  const attempt = (ip, password) => fetch(baseUrl + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': `${ip}, 172.17.0.1`, 'CF-Connecting-IP': ip },
+    body: JSON.stringify({ email: 'alice@example.com', password })
+  });
+  let last;
+  for (let i = 0; i < 11; i++) last = await attempt('203.0.113.9', `wrong-${i}`);
+  assert.equal(last.status, 429, 'the guesser is blocked');
+  assert.equal((await attempt('198.51.100.20', 'correct horse')).status, 200, 'family member elsewhere still gets in');
+});
