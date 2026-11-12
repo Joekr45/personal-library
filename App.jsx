@@ -34,7 +34,10 @@ import {
   Menu,
   ImagePlus,
   Settings,
-  Trophy
+  Trophy,
+  BadgeCheck,
+  HandHelping,
+  ShoppingBag
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
@@ -49,6 +52,10 @@ import StarRating from './src/StarRating.jsx';
 import MyYearPage, { UpNext } from './src/MyYearPage.jsx';
 import SortFilterBar, { SORTERS, EMPTY_FILTERS, applyFilters } from './src/SortFilterBar.jsx';
 import { statusChanges } from './src/reading.js';
+import LendPanel from './src/LendPanel.jsx';
+import FamilyPage from './src/FamilyPage.jsx';
+import ShoppingList from './src/ShoppingList.jsx';
+import { sameBook, currentLoan } from './src/matching.js';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -81,6 +88,10 @@ export default function App() {
   const [saveError, setSaveError] = useState(null);
   const [settings, setSettings] = useState(null); // { isOwner, hardcover: { connected, username } }
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [family, setFamily] = useState(null); // shared family shelves { sharing, members }
+  const [isShoppingListOpen, setIsShoppingListOpen] = useState(false);
+  const [scannerInitialMode, setScannerInitialMode] = useState(null);
+  const loadFamily = () => api.family().then(setFamily).catch(() => setFamily({ sharing: false, members: [] }));
   const booksRef = useRef(books);
   booksRef.current = books;
 
@@ -117,6 +128,7 @@ export default function App() {
     }
     setLibraryError(null);
     api.getSettings().then(setSettings).catch(() => setSettings(null));
+    loadFamily();
     api.listBooks()
       .then(setBooks)
       .catch(err => setLibraryError(err.message))
@@ -320,6 +332,7 @@ export default function App() {
       unread: books.filter(b => b.readingStatus === 'Unread' && b.owned !== false).length,
       completed: books.filter(b => b.readingStatus === 'Completed' && b.owned !== false).length,
       wishlist: books.filter(b => b.owned === false).length,
+      lent: books.filter(b => currentLoan(b)).length,
       authors: libraryAuthors.length,
       series: Array.from(new Set(books.map(b => b.series).filter(Boolean))).length
     };
@@ -342,6 +355,7 @@ export default function App() {
       if (activeSection === 'unread') return b.readingStatus === 'Unread' && b.owned !== false;
       if (activeSection === 'completed') return b.readingStatus === 'Completed' && b.owned !== false;
       if (activeSection === 'wishlist') return b.owned === false;
+      if (activeSection === 'lent') return Boolean(currentLoan(b));
       return true;
     });
     return applyFilters(matching, filters).sort(SORTERS[sortBy] || byTitle);
@@ -764,6 +778,21 @@ export default function App() {
                 {counts.wishlist}
               </span>
             </button>
+
+            <button
+              onClick={() => { setActiveSection('lent'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'lent' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <HandHelping className="w-4 h-4" />
+                <span>Lent Out</span>
+              </div>
+              <span className={`text-[11px] font-normal ${activeSection === 'lent' ? 'text-orange-100' : 'text-slate-400'}`}>
+                {counts.lent}
+              </span>
+            </button>
           </div>
 
           <div className="space-y-1">
@@ -817,6 +846,18 @@ export default function App() {
               <div className="flex items-center gap-2.5">
                 <Trophy className="w-4 h-4" />
                 <span>My Year</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => { setActiveSection('family'); setCurrentPage(1); loadFamily(); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'family' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Users className="w-4 h-4" />
+                <span>Family Shelves</span>
               </div>
             </button>
           </div>
@@ -895,6 +936,16 @@ export default function App() {
             </button>
 
             <button
+              onClick={() => { setScannerInitialMode('check'); setIsScanModalOpen(true); }}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+              title="Do I own this? Scan a book in the shop"
+              aria-label="Do I own it?"
+            >
+              <BadgeCheck className="w-4 h-4 text-emerald-600" />
+              <span className="hidden sm:inline">Own it?</span>
+            </button>
+
+            <button
               onClick={() => setIsScanModalOpen(true)}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-orange-500 hover:bg-orange-600 active:scale-95 text-white rounded-xl text-xs font-semibold shadow-xs transition-all"
             >
@@ -937,7 +988,11 @@ export default function App() {
             <MyYearPage books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} />
           )}
 
-          {activeSection !== 'authors' && activeSection !== 'series' && activeSection !== 'year' && (
+          {activeSection === 'family' && (
+            <FamilyPage family={family} myBooks={books} onOpenSettings={() => setIsSettingsOpen(true)} onRefresh={loadFamily} />
+          )}
+
+          {activeSection !== 'authors' && activeSection !== 'series' && activeSection !== 'year' && activeSection !== 'family' && (
             <div className="space-y-6">
               <div className="flex items-baseline justify-between">
                 <div>
@@ -947,7 +1002,13 @@ export default function App() {
                     {activeSection === 'unread' && `Want to Read (${filteredBooks.length})`}
                     {activeSection === 'completed' && 'Finished Books'}
                     {activeSection === 'wishlist' && 'Missing / Wishlist'}
+                    {activeSection === 'lent' && 'Lent Out'}
                   </h2>
+                  {activeSection === 'wishlist' && counts.wishlist > 0 && (
+                    <button onClick={() => setIsShoppingListOpen(true)} className="mt-1.5 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                      <ShoppingBag className="w-3.5 h-3.5" /> Shopping list
+                    </button>
+                  )}
                   <p className="text-xs text-slate-500 mt-0.5">
                     {filteredBooks.length === 0
                       ? `Your shelves are clean and empty, ${currentUser.displayName}. Ready to scan or add your first book.`
@@ -1157,6 +1218,12 @@ export default function App() {
                       <span>{selectedBook.author}</span>
                       <ArrowRight className="w-3 h-3" />
                     </button>
+                    {(() => {
+                      const owners = (family?.members || []).filter(m => m.books.some(b => sameBook(b, selectedBook))).map(m => m.displayName);
+                      return owners.length > 0 ? (
+                        <p className="mt-1 text-[11px] text-sky-700 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Also on {owners.join(' and ')}'s shelf</p>
+                      ) : null;
+                    })()}
                   </div>
 
                   {selectedBook.series && (
@@ -1215,6 +1282,10 @@ export default function App() {
               </div>
 
               <ReadingPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+
+              {selectedBook.owned !== false && (
+                <LendPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+              )}
 
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
@@ -1446,8 +1517,16 @@ export default function App() {
         </div>
       )}
 
+      {isShoppingListOpen && (
+        <ShoppingList
+          books={books}
+          onClose={() => setIsShoppingListOpen(false)}
+          onGotIt={(b) => updateBook(b.id, { owned: true, shelfLocation: b.shelfLocation || 'Living Room Shelf' })}
+        />
+      )}
+
       {isSettingsOpen && settings && (
-        <SettingsModal settings={settings} currentUser={currentUser} onChange={setSettings} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal settings={settings} currentUser={currentUser} onChange={setSettings} onFamilyChange={loadFamily} onClose={() => setIsSettingsOpen(false)} />
       )}
 
       {/* COVER PICKERS */}
@@ -1526,10 +1605,12 @@ export default function App() {
         <ScannerModal
           books={books}
           coverThemes={COVER_THEMES}
-          onClose={() => { setIsScanModalOpen(false); setScannerInitialBook(null); }}
+          onClose={() => { setIsScanModalOpen(false); setScannerInitialBook(null); setScannerInitialMode(null); }}
           onAdd={addBook}
           onSaveCover={saveCoverFor}
           initialBook={scannerInitialBook}
+          initialMode={scannerInitialMode}
+          family={family}
           onManualAdd={openManualAdd}
         />
       )}
@@ -1637,6 +1718,7 @@ function AppleBookCard({ book, onClick, onAuthorClick }) {
           {book.author}
         </button>
         {book.rating ? <StarRating value={book.rating} size="sm" /> : null}
+        {currentLoan(book) && <p className="text-[10px] font-semibold text-sky-700 truncate">Lent to {currentLoan(book).to}</p>}
         <div className="flex items-center justify-between pt-1 text-[10px]">
           <span className="text-slate-400 flex items-center gap-1 font-medium">
             <span className={`w-1.5 h-1.5 rounded-full ${book.readingStatus === 'Reading' ? 'bg-orange-500' : book.readingStatus === 'Completed' ? 'bg-emerald-500' : 'bg-slate-300'}`} />

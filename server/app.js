@@ -66,6 +66,9 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
     return saved === null ? allowRegistration : saved === 'true';
   };
 
+  // Family sharing: each person chooses whether the rest of the family can see their library.
+  const isSharing = (userId) => getSetting(`share:${userId}`) === 'true';
+
   const requireOwner = (req) => {
     const user = requireUser(req);
     if (user.role !== 'Owner') throw new HttpError(403, 'Only the library owner can change this setting.');
@@ -162,6 +165,13 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       data.rating = r >= 0.5 && r <= 5 ? r : null;
     }
     if (data.notes !== undefined) data.notes = typeof data.notes === 'string' ? data.notes.slice(0, 20000) : null;
+    // Lending history: [{ to, lentOn, returnedOn }]
+    if (data.loans !== undefined) {
+      const date = (d) => (d && /^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? String(d) : null);
+      data.loans = (Array.isArray(data.loans) ? data.loans : []).slice(-100)
+        .map(l => ({ to: cleanText(l?.to, 100), lentOn: date(l?.lentOn), returnedOn: date(l?.returnedOn) }))
+        .filter(l => l.to);
+    }
     for (const field of ['dateStarted', 'dateFinished']) {
       if (data[field] !== undefined && data[field] !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(data[field]))) {
         throw new HttpError(400, 'Dates must look like 2026-11-11.');
@@ -389,6 +399,47 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
       return { status: 201, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(id)) } };
     },
 
+    // Family sharing
+    'GET /api/me/sharing': (req) => {
+      const user = requireUser(req);
+      return { status: 200, body: { sharing: isSharing(user.id) } };
+    },
+
+    'PUT /api/me/sharing': async (req) => {
+      const user = requireUser(req);
+      const sharing = (await readJson(req)).sharing === true;
+      setSetting(`share:${user.id}`, sharing ? 'true' : 'false');
+      return { status: 200, body: { sharing } };
+    },
+
+    // Libraries the rest of the family shares with you (read-only, books on their shelves only).
+    'GET /api/family': (req) => {
+      const user = requireUser(req);
+      const members = db.prepare('SELECT id, email, display_name, role, color FROM users WHERE id != ? ORDER BY created_at').all(user.id)
+        .filter(u => isSharing(u.id))
+        .map(u => {
+          const shelf = db.prepare('SELECT id, data FROM books WHERE user_id = ?').all(u.id)
+            .map(r => ({ id: r.id, ...JSON.parse(r.data) }))
+            .filter(b => b.owned !== false)
+            .map(b => ({
+              id: b.id,
+              workTitle: b.workTitle,
+              author: b.author,
+              series: b.series || null,
+              seriesNumber: b.seriesNumber ?? null,
+              workKey: b.workKey || null,
+              customCoverUrl: b.customCoverUrl || null,
+              isbns: (b.editions || []).map(e => e.isbn).filter(i => i && i !== 'Pending Scan'),
+              language: b.editions?.[0]?.language || 'English',
+              readingStatus: b.readingStatus,
+              rating: b.rating || null
+            }));
+          const { email, ...profile } = publicUser(u);
+          return { ...profile, books: shelf };
+        });
+      return { status: 200, body: { sharing: isSharing(user.id), members } };
+    },
+
     // Yearly reading goal: GET ?year=2026, PUT { year, goal }
     'GET /api/me/goal': (req) => {
       const user = requireUser(req);
@@ -586,8 +637,10 @@ export function createServer({ dataDir, distDir, allowRegistration = true, fetch
   // Send a saved cover picture, only to the person whose book it belongs to.
   const serveCover = (req, res, file) => {
     const user = requireUser(req);
-    const owns = db.prepare("SELECT 1 FROM books WHERE user_id = ? AND json_extract(data, '$.coverFile') = ?").get(user.id, file);
-    const full = owns && covers.filePath(file);
+    // Your own covers, and covers from family members who share their library.
+    const owner = db.prepare("SELECT user_id FROM books WHERE json_extract(data, '$.coverFile') = ?").get(file);
+    const allowed = owner && (owner.user_id === user.id || isSharing(owner.user_id));
+    const full = allowed && covers.filePath(file);
     if (!full) throw new HttpError(404, 'Cover not found.');
     const ext = path.extname(full).slice(1);
     const stat = fs.statSync(full);

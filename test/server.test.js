@@ -207,3 +207,11 @@ test('reading life: rating, notes, dates, date added, yearly goal', async () => 
   await other('POST', '/api/auth/register', { email: 'reader3@example.com', password: 'long enough' });
   assert.equal((await other('GET', '/api/me/goal?year=2026')).body.goal, null, 'goals are per person');
 });
+
+test('lending history is cleaned up and kept', async () => {
+  const c = client();
+  await c('POST', '/api/auth/register', { email: 'lender@example.com', password: 'long enough' });
+  const b = (await c('POST', '/api/books', book('Lent Book'))).body.book;
+  const lent = (await c('PUT', `/api/books/${b.id}`, { loans: [{ to: '  Sam ', lentOn: '2026-11-01', returnedOn: 'soon', extra: 'x' }, { to: '' }] })).body.book;
+  assert.deepEqual(lent.loans, [{ to: 'Sam', lentOn: '2026-11-01', returnedOn: null }]);
+});

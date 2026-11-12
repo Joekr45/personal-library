@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ScanBarcode, X, RefreshCw, AlertTriangle, CheckCircle2, Search, Keyboard, Heart, Library, BookOpen, Info, ImagePlus, ArrowLeft
+  ScanBarcode, X, RefreshCw, AlertTriangle, CheckCircle2, Search, Keyboard, Heart, Library, BookOpen, Info, ImagePlus, ArrowLeft,
+  BadgeCheck, Users
 } from 'lucide-react';
 import { api } from './api.js';
 import CoverPicker from './CoverPicker.jsx';
 import { LANGUAGES } from './languages.js';
+import { sameBook } from './matching.js';
 import { classifyCode, toIsbn13 } from '../shared/isbn.js';
 
 // Same idea as the server's normalizeTitle: used to spot books already in the library.
@@ -56,14 +58,21 @@ function decodeWithZxing(video, canvas) {
 const TABS = [
   { id: 'camera', label: 'Scan', icon: ScanBarcode },
   { id: 'isbn', label: 'Type ISBN', icon: Keyboard },
-  { id: 'search', label: 'Find by Title', icon: Search }
+  { id: 'search', label: 'Find by Title', icon: Search },
+  { id: 'check', label: 'Own it?', icon: BadgeCheck }
 ];
 
 // The "Add a book" window: scan a barcode, type an ISBN, or search by title/author.
 // initialBook: open straight to the confirmation card for this book (e.g. from the author page);
 // the window then closes after the book is added.
-export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onManualAdd, coverThemes, initialBook = null }) {
-  const [mode, setMode] = useState(initialBook ? 'search' : 'camera');
+export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onManualAdd, coverThemes, initialBook = null, family = null, initialMode = null }) {
+  const [mode, setMode] = useState(initialBook ? 'search' : initialMode || 'camera');
+  // "Scan" and "Do I own it?" both use the camera.
+  const usesCamera = mode === 'camera' || mode === 'check';
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const [checkResult, setCheckResult] = useState(null);
+  const [checkInput, setCheckInput] = useState('');
 
   // camera
   const videoRef = useRef(null);
@@ -131,7 +140,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
           timerRef.current = null;
           setCameraState('paused');
           playBeep();
-          await lookUp(text);
+          await (modeRef.current === 'check' ? runCheck(text) : lookUp(text));
           return;
         }
       } catch {
@@ -176,7 +185,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
   };
 
   useEffect(() => {
-    if (mode === 'camera') startCamera();
+    if (mode === 'camera' || mode === 'check') startCamera();
     else stopCamera();
     return stopCamera;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -200,7 +209,53 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
 
   const scanAgain = () => {
     resetResult();
-    if (mode === 'camera') startScanLoop();
+    if (usesCamera) startScanLoop();
+  };
+
+  // ---------- "Do I own it?" ----------
+  // Checks a barcode against your library (any edition) and the family's shared shelves,
+  // without adding anything.
+  const familyOwners = (candidate) => (family?.members || [])
+    .filter(m => m.books.some(b => sameBook(b, candidate)))
+    .map(m => m.displayName);
+
+  const runCheck = async (raw) => {
+    resetResult();
+    setCheckResult(null);
+    setLastAdded(null);
+    const code = classifyCode(raw);
+    if (code.kind === 'invalid') { setNotice({ type: 'invalid', message: code.reason }); return; }
+    if (code.kind === 'upc') { setNotice({ type: 'upc', code: code.code }); return; }
+    const exact = booksRef.current.find(b => sameBook(b, { isbns: [code.isbn13] }) === 'edition');
+    if (exact) {
+      setCheckResult({ status: exact.owned === false ? 'wishlist' : 'owned', exactEdition: true, book: exact, family: familyOwners({ isbns: [code.isbn13], workTitle: exact.workTitle, author: exact.author, workKey: exact.workKey }) });
+      return;
+    }
+    setIsLookingUp(true);
+    try {
+      const data = await api.lookupCode(code.isbn13);
+      const info = data.found ? data.book : null;
+      const candidate = info ? { title: info.title, authors: info.authors, workKey: info.workKey, isbns: [code.isbn13] } : { isbns: [code.isbn13] };
+      const other = info && booksRef.current.find(b => sameBook(b, candidate));
+      setCheckResult({
+        status: other ? (other.owned === false ? 'wishlist' : 'owned') : 'new',
+        exactEdition: false,
+        book: other || null,
+        info,
+        isbn13: code.isbn13,
+        family: familyOwners(candidate)
+      });
+    } catch (err) {
+      setNotice({ type: 'error', message: err.message });
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
+  const checkAnother = () => {
+    setCheckResult(null);
+    setCheckInput('');
+    scanAgain();
   };
 
   const lookUp = async (raw) => {
@@ -303,7 +358,8 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
       setLastAdded({ title: book.workTitle, owned });
       setIsbnInput('');
       resetResult();
-      if (mode === 'camera') startScanLoop();
+      setCheckResult(null);
+      if (usesCamera) startScanLoop();
     }
   };
 
@@ -351,6 +407,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
   };
 
   const switchMode = (next) => {
+    setCheckResult(null);
     resetResult();
     setLastAdded(null);
     setMode(next);
@@ -382,7 +439,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
             <button
               key={id}
               onClick={() => switchMode(id)}
-              className={`flex-1 py-2.5 rounded-xl font-semibold transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-2.5 rounded-xl font-semibold transition-all flex items-center justify-center gap-1 whitespace-nowrap text-[11px] sm:text-xs ${
                 mode === id ? 'bg-white shadow-xs text-orange-600' : 'text-slate-500 hover:text-slate-900'
               }`}
             >
@@ -403,18 +460,26 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
             </div>
           )}
 
-          {/* --- Scan --- */}
-          {mode === 'camera' && (
+          {/* --- Scan / Do I own it? --- */}
+          {usesCamera && (
             <div className="space-y-3">
               <div className="relative aspect-[4/3] sm:aspect-video bg-black rounded-2xl overflow-hidden flex items-center justify-center">
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
                 <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 h-24 border-2 border-orange-400/80 rounded-xl pointer-events-none" />
                 {cameraState === 'starting' && <RefreshCw className="absolute w-6 h-6 text-white animate-spin" />}
               </div>
-              {cameraState === 'scanning' && !result && !notice && (
+              {cameraState === 'scanning' && !result && !notice && !checkResult && (
                 <p className="text-[11px] text-slate-500 text-center">
-                  Point the camera at the barcode. Hold steady about 15 cm (6 in) away.
+                  {mode === 'check'
+                    ? 'Scan a book in the shop to see if you already have it. Nothing gets added.'
+                    : 'Point the camera at the barcode. Hold steady about 15 cm (6 in) away.'}
                 </p>
+              )}
+              {mode === 'check' && !checkResult && (
+                <form onSubmit={(e) => { e.preventDefault(); if (checkInput.trim()) { clearInterval(timerRef.current); runCheck(checkInput); } }} className="flex gap-2">
+                  <input value={checkInput} onChange={(e) => setCheckInput(e.target.value)} inputMode="numeric" placeholder="…or type the ISBN" className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono" />
+                  <button type="submit" disabled={!checkInput.trim()} className="px-3 py-2 bg-slate-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold">Check</button>
+                </form>
               )}
               {cameraError && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">{cameraError}</div>
@@ -448,7 +513,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
             </form>
           )}
 
-          {isLookingUp && mode === 'camera' && (
+          {isLookingUp && usesCamera && (
             <div className="p-3 text-xs text-slate-600 flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> Looking up the book…</div>
           )}
 
@@ -473,7 +538,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
                   <Search className="w-3.5 h-3.5" /> Find by title
                 </button>
               </div>
-              {mode === 'camera' && (
+              {usesCamera && (
                 <button onClick={scanAgain} className={`${btn} w-full text-amber-900 hover:bg-amber-100`}>
                   <ScanBarcode className="w-3.5 h-3.5" /> Scan a different barcode
                 </button>
@@ -484,7 +549,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
           {(notice?.type === 'invalid' || notice?.type === 'error') && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-2xl text-xs text-red-800 space-y-2">
               <div className="flex gap-2"><AlertTriangle className="w-4 h-4 flex-shrink-0" /><span>{notice.message}</span></div>
-              {mode === 'camera' && <button onClick={scanAgain} className="font-semibold underline">Scan again</button>}
+              {usesCamera && <button onClick={scanAgain} className="font-semibold underline">Scan again</button>}
             </div>
           )}
 
@@ -495,7 +560,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
                   ? <>"<b>{notice.book.workTitle}</b>" is already on your wishlist.</>
                   : <>You already own "<b>{notice.book.workTitle}</b>"{notice.book.shelfLocation ? <> (shelf: {notice.book.shelfLocation})</> : null}.</>}
               </p>
-              {mode === 'camera' && <button onClick={scanAgain} className="font-semibold underline">Scan another book</button>}
+              {usesCamera && <button onClick={scanAgain} className="font-semibold underline">Scan another book</button>}
             </div>
           )}
 
@@ -513,13 +578,56 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
                   <Keyboard className="w-3.5 h-3.5" /> Enter details
                 </button>
               </div>
-              {mode === 'camera' && (
+              {usesCamera && (
                 <button onClick={scanAgain} className={`${btn} w-full hover:bg-slate-100`}>
                   <ScanBarcode className="w-3.5 h-3.5" /> Scan another book
                 </button>
               )}
             </div>
           )}
+
+          {checkResult && !result && (() => {
+            const c = checkResult;
+            const style = {
+              owned: 'bg-emerald-600 text-white',
+              wishlist: 'bg-rose-500 text-white',
+              new: 'bg-slate-800 text-white'
+            }[c.status];
+            const title = c.book?.workTitle || c.info?.title || `ISBN ${c.isbn13}`;
+            const heading = c.status === 'owned'
+              ? (c.exactEdition ? 'You own this book' : 'You own this book (another edition)')
+              : c.status === 'wishlist' ? "It's on your wishlist — buy it!" : 'Not in your library';
+            return (
+              <div className="rounded-2xl overflow-hidden border border-slate-200">
+                <div className={`p-4 ${style}`}>
+                  <p className="text-lg font-black flex items-center gap-2">{c.status === 'owned' ? <CheckCircle2 className="w-5 h-5" /> : c.status === 'wishlist' ? <Heart className="w-5 h-5" /> : <Info className="w-5 h-5" />} {heading}</p>
+                  <p className="text-sm font-semibold mt-1">{title}</p>
+                  {(c.book?.author || c.info?.authors?.length) && <p className="text-xs opacity-90">{c.book?.author || c.info.authors.join(', ')}</p>}
+                </div>
+                <div className="p-3 bg-white space-y-2 text-xs text-slate-700">
+                  {c.status === 'owned' && !c.exactEdition && c.book && (
+                    <p>Yours is the {[c.book.editions?.[0]?.language, c.book.editions?.[0]?.format].filter(Boolean).join(' ') || 'other'} edition{c.book.shelfLocation ? `, on ${c.book.shelfLocation}` : ''}.</p>
+                  )}
+                  {c.status === 'owned' && c.exactEdition && c.book?.shelfLocation && <p>On your shelf: {c.book.shelfLocation}.</p>}
+                  {c.family.length > 0 && (
+                    <p className="p-2 bg-sky-50 border border-sky-200 rounded-lg text-sky-800 flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> {c.family.join(' and ')} {c.family.length === 1 ? 'has' : 'have'} this book.</p>
+                  )}
+                  {c.status === 'new' && c.info && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => { clearInterval(timerRef.current); showResult({ ...c.info, fromSearch: false }); }} className={`${btn} bg-emerald-600 hover:bg-emerald-700 text-white`}>
+                        <Library className="w-3.5 h-3.5" /> I'm buying it
+                      </button>
+                      <button onClick={() => { clearInterval(timerRef.current); showResult({ ...c.info, fromSearch: false }); }} className={`${btn} bg-white border border-rose-200 text-rose-600`}>
+                        <Heart className="w-3.5 h-3.5" /> Add to wishlist…
+                      </button>
+                    </div>
+                  )}
+                  {c.status === 'new' && !c.info && <p>The catalogs don't know this ISBN, and it's not in your library.</p>}
+                  <button onClick={checkAnother} className={`${btn} w-full bg-slate-100 hover:bg-slate-200`}><BadgeCheck className="w-3.5 h-3.5" /> Check another book</button>
+                </div>
+              </div>
+            );
+          })()}
 
           {result && (
             <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-3">
@@ -577,7 +685,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
                   <Heart className="w-3.5 h-3.5" /> Add to Wishlist
                 </button>
               </div>
-              {mode === 'camera' && (
+              {usesCamera && (
                 <button onClick={scanAgain} className={`${btn} w-full text-slate-600 hover:bg-emerald-100`}>
                   Not this book? Scan again
                 </button>

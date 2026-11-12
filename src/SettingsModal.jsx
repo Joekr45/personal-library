@@ -263,7 +263,29 @@ function OwnerSection({ currentUserId }) {
 }
 
 // Settings window: account, data, install, Hardcover and (for the owner) the library's settings.
-export default function SettingsModal({ settings, currentUser, onChange, onClose }) {
+// "Share my library with the family": lets family members see the books on your shelves.
+function SharingToggle({ onChange }) {
+  const [sharing, setSharing] = useState(null);
+  useEffect(() => { api.getSharing().then(setSharing).catch(() => setSharing(false)); }, []);
+  if (sharing === null) return null;
+  return (
+    <label className="flex items-start gap-2 p-3 bg-slate-50 rounded-xl cursor-pointer">
+      <input
+        type="checkbox"
+        checked={sharing}
+        onChange={async (e) => {
+          const next = e.target.checked;
+          setSharing(next);
+          try { setSharing(await api.setSharing(next)); onChange?.(); } catch { setSharing(!next); }
+        }}
+        className="w-4 h-4 mt-0.5 accent-orange-500"
+      />
+      <span><b>Share my library with the family.</b> They'll see the books on your shelves in "Family Shelves" (not your notes or wishlist).</span>
+    </label>
+  );
+}
+
+export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange }) {
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4">
       <div className="bg-white sm:rounded-3xl shadow-2xl max-w-lg w-full flex flex-col h-full sm:h-auto sm:max-h-[92vh] overflow-hidden">
@@ -281,6 +303,7 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
           <Section icon={Download} title="My books">
             <p className="text-slate-500">Download all your books as a spreadsheet (opens in Excel, Google Sheets or Numbers).</p>
             <a href="/api/export/books.csv" className={buttonClass}><Download className="w-3.5 h-3.5" /> Download my books (spreadsheet)</a>
+            <SharingToggle onChange={onFamilyChange} />
           </Section>
           <InstallSection />
           <PasswordSection />

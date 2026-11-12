@@ -19,6 +19,13 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **My Year** (menu): books finished this year, a **yearly goal** with "ahead/behind schedule", books per month, pages, average rating, top author, and **Up next in your series**.
 - Book lists have a **sort menu** (title, author, recently added, recently finished, rating, year published — remembered on each device) and **filters** (shelf, language, format, rating).
 
+## Shopping & family
+
+- **Own it?** (top bar): scan or type an ISBN in a shop to see whether you already own the book (any edition or language), whether it's on your wishlist, and whether someone in the family has it. Nothing is added unless you choose to.
+- **Shopping list** (Wishlist page): wishlist grouped by author with series numbers, **Got it!** buttons, and copy/share as text.
+- **Lending** (book page): lend a book to someone, mark it returned, keep the history; **Lent Out** in the menu lists what's out.
+- **Family Shelves**: each person can turn on **Share my library with the family** in Settings. Others can then browse the books on their shelves (not notes or wishlists), and see "Also on Mom's shelf" on book pages and in Own it?.
+
 ## Settings
 
 - **My books:** download your books as a spreadsheet (CSV, Goodreads-style columns).
