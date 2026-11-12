@@ -37,7 +37,8 @@ import {
   Trophy,
   BadgeCheck,
   HandHelping,
-  ShoppingBag
+  ShoppingBag,
+  Sparkles
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
@@ -56,6 +57,8 @@ import LendPanel from './src/LendPanel.jsx';
 import FamilyPage from './src/FamilyPage.jsx';
 import ShoppingList from './src/ShoppingList.jsx';
 import { sameBook, currentLoan } from './src/matching.js';
+import ImportModal from './src/ImportModal.jsx';
+import NewForYouPage from './src/NewForYouPage.jsx';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -91,6 +94,12 @@ export default function App() {
   const [family, setFamily] = useState(null); // shared family shelves { sharing, members }
   const [isShoppingListOpen, setIsShoppingListOpen] = useState(false);
   const [scannerInitialMode, setScannerInitialMode] = useState(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [newReleases, setNewReleases] = useState(null); // { releases, authorsChecked } or { error }
+  const loadNewReleases = () => {
+    setNewReleases(null);
+    api.newReleases().then(setNewReleases).catch(err => setNewReleases({ error: err.message, releases: [] }));
+  };
   const loadFamily = () => api.family().then(setFamily).catch(() => setFamily({ sharing: false, members: [] }));
   const booksRef = useRef(books);
   booksRef.current = books;
@@ -130,7 +139,7 @@ export default function App() {
     api.getSettings().then(setSettings).catch(() => setSettings(null));
     loadFamily();
     api.listBooks()
-      .then(setBooks)
+      .then((list) => { setBooks(list); if (list.length) loadNewReleases(); else setNewReleases({ releases: [], authorsChecked: 0 }); })
       .catch(err => setLibraryError(err.message))
       .finally(() => setIsLibraryLoaded(true));
   }, [currentUser]);
@@ -799,6 +808,23 @@ export default function App() {
             <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">Explore</p>
 
             <button
+              onClick={() => { setActiveSection('new'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'new' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="w-4 h-4" />
+                <span>New for You</span>
+              </div>
+              {newReleases?.releases?.length > 0 && (
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${activeSection === 'new' ? 'bg-orange-600 text-white' : 'bg-rose-500 text-white'}`}>
+                  {newReleases.releases.length}
+                </span>
+              )}
+            </button>
+
+            <button
               onClick={() => {
                 setActiveSection('authors');
                 setCurrentPage(1);
@@ -988,11 +1014,36 @@ export default function App() {
             <MyYearPage books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} />
           )}
 
+          {activeSection === 'new' && (
+            <NewForYouPage
+              data={newReleases}
+              onRefresh={loadNewReleases}
+              onDismissed={(id) => setNewReleases(prev => (prev ? { ...prev, releases: prev.releases.filter(r => r.id !== id) } : prev))}
+              onAddWishlist={async (r) => {
+                const saved = await addBook({
+                  workTitle: r.title,
+                  author: r.author,
+                  series: r.series || null,
+                  seriesNumber: r.seriesNumber ?? null,
+                  hardcoverSeriesId: r.hardcoverSeriesId || null,
+                  owned: false,
+                  readingStatus: 'Unread',
+                  shelfLocation: '',
+                  customCoverUrl: r.cover || null,
+                  theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
+                  editions: [{ id: `ed-${Date.now()}`, title: r.title, language: 'English', format: 'Physical Print', isbn: r.isbn13 || 'Pending Scan', published: r.date || 'Unknown', publisher: 'Unknown' }]
+                });
+                if (saved && r.cover) saveCoverFor(saved.id, { url: r.cover }, { quiet: true });
+                return saved;
+              }}
+            />
+          )}
+
           {activeSection === 'family' && (
             <FamilyPage family={family} myBooks={books} onOpenSettings={() => setIsSettingsOpen(true)} onRefresh={loadFamily} />
           )}
 
-          {activeSection !== 'authors' && activeSection !== 'series' && activeSection !== 'year' && activeSection !== 'family' && (
+          {activeSection !== 'authors' && activeSection !== 'series' && activeSection !== 'year' && activeSection !== 'family' && activeSection !== 'new' && (
             <div className="space-y-6">
               <div className="flex items-baseline justify-between">
                 <div>
@@ -1517,6 +1568,14 @@ export default function App() {
         </div>
       )}
 
+      {isImportOpen && (
+        <ImportModal
+          books={books}
+          onClose={() => setIsImportOpen(false)}
+          onImported={(added) => { setBooks(prev => [...added, ...prev]); loadNewReleases(); }}
+        />
+      )}
+
       {isShoppingListOpen && (
         <ShoppingList
           books={books}
@@ -1526,7 +1585,7 @@ export default function App() {
       )}
 
       {isSettingsOpen && settings && (
-        <SettingsModal settings={settings} currentUser={currentUser} onChange={setSettings} onFamilyChange={loadFamily} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal settings={settings} currentUser={currentUser} onChange={setSettings} onFamilyChange={loadFamily} onImport={() => setIsImportOpen(true)} onClose={() => setIsSettingsOpen(false)} />
       )}
 
       {/* COVER PICKERS */}

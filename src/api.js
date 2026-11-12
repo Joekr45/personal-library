@@ -86,3 +86,8 @@ api.setGoal = (year, goal) => request('PUT', '/api/me/goal', { year, goal });
 api.getSharing = () => request('GET', '/api/me/sharing').then(d => d.sharing);
 api.setSharing = (sharing) => request('PUT', '/api/me/sharing', { sharing }).then(d => d.sharing);
 api.family = () => request('GET', '/api/family');
+
+// Import and new releases
+api.bulkAdd = (books) => request('POST', '/api/books/bulk', { books });
+api.newReleases = () => request('GET', '/api/new-releases');
+api.dismissRelease = (id) => request('POST', '/api/new-releases/dismiss', { id });
