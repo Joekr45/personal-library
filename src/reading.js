@@ -47,3 +47,21 @@ export function upNextInSeries(books) {
   }
   return result.sort((a, b) => a.series.localeCompare(b.series));
 }
+
+// Every date this book was finished: earlier reads (re-reads) and the latest one.
+export const finishDates = (book) =>
+  [...(Array.isArray(book?.reads) ? book.reads.map(r => r?.finished) : []), book?.dateFinished].filter(Boolean);
+
+// How many times you've read it (a Completed book without a date still counts once).
+export const timesRead = (book) =>
+  (Array.isArray(book?.reads) ? book.reads.filter(r => r?.finished).length : 0) +
+  (book?.dateFinished || book?.readingStatus === 'Completed' ? 1 : 0);
+
+// "Read it again": the finished read goes into the history and a new read starts today.
+export const startReread = (book) => ({
+  reads: [...(book.reads || []), { started: book.dateStarted || null, finished: book.dateFinished || null }],
+  readingStatus: 'Reading',
+  dateStarted: today(),
+  dateFinished: null,
+  currentPage: null
+});

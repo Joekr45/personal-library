@@ -39,7 +39,10 @@ import {
   HandHelping,
   ShoppingBag,
   Sparkles,
-  Tags
+  Tags,
+  Quote,
+  Flag,
+  BellRing
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
@@ -63,6 +66,12 @@ import NewForYouPage from './src/NewForYouPage.jsx';
 import ShelvesPanel from './src/ShelvesPanel.jsx';
 import ProgressPanel from './src/ProgressPanel.jsx';
 import { allShelves, hasTag, renameTag, tagsOf, progressOf } from './src/shelves.js';
+import QuotesPanel from './src/QuotesPanel.jsx';
+import CollectorPanel from './src/CollectorPanel.jsx';
+import FindItLinks from './src/FindItLinks.jsx';
+import QuotesPage from './src/QuotesPage.jsx';
+import ChallengesPage from './src/ChallengesPage.jsx';
+import { overdueBooks, reminderText, shareOrCopy } from './src/lending.js';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -103,6 +112,7 @@ export default function App() {
   const [scannerInitialMode, setScannerInitialMode] = useState(null);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [newReleases, setNewReleases] = useState(null); // { releases, authorsChecked } or { error }
+  const [prefs, setPrefs] = useState({}); // e.g. { libbyLibrary: 'nypl' }
   const loadNewReleases = () => {
     setNewReleases(null);
     api.newReleases().then(setNewReleases).catch(err => setNewReleases({ error: err.message, releases: [] }));
@@ -146,6 +156,7 @@ export default function App() {
     }
     setLibraryError(null);
     api.getSettings().then(setSettings).catch(() => setSettings(null));
+    api.getPrefs().then(setPrefs).catch(() => setPrefs({}));
     loadFamily();
     api.listBooks()
       .then((list) => { setBooks(list); if (list.length) loadNewReleases(); else setNewReleases({ releases: [], authorsChecked: 0 }); })
@@ -345,6 +356,14 @@ export default function App() {
   }, [books]);
 
   const myShelves = useMemo(() => allShelves(books), [books]);
+  const overdue = useMemo(() => overdueBooks(books), [books]);
+  const quoteCount = useMemo(() => books.reduce((n, b) => n + (b.quotes || []).length, 0), [books]);
+  const [reminderNote, setReminderNote] = useState('');
+  const sendReminder = async (book, loan) => {
+    const result = await shareOrCopy(reminderText(book, loan, currentUser?.displayName), `About "${book.workTitle}"`);
+    setReminderNote(result === 'copied' ? `Reminder for ${loan.to} copied. Paste it into a text or email.` : '');
+    setTimeout(() => setReminderNote(''), 4000);
+  };
   const activeShelf = activeSection.startsWith('shelf:') ? activeSection.slice(6) : null;
 
   // Rename or remove one of your shelves on every book that's on it.
@@ -704,7 +723,7 @@ export default function App() {
           isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         } w-64 flex-shrink-0 bg-[#f4f4f7] md:bg-[#f4f4f7]/95 backdrop-blur-2xl border-r border-slate-200/80 flex flex-col justify-between p-4`}
       >
-        <div className="space-y-5 overflow-y-auto pr-1">
+        <div className="space-y-5 overflow-y-auto pr-1 flex-1 min-h-0">
           <div className="flex items-center gap-3 px-1 pt-1">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 via-amber-500 to-amber-400 flex items-center justify-center text-white shadow-md shadow-orange-500/20">
               <BookOpen className="w-5 h-5" />
@@ -847,9 +866,13 @@ export default function App() {
                 <HandHelping className="w-4 h-4" />
                 <span>Lent Out</span>
               </div>
-              <span className={`text-[11px] font-normal ${activeSection === 'lent' ? 'text-orange-100' : 'text-slate-400'}`}>
-                {counts.lent}
-              </span>
+              {overdue.length > 0 ? (
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-500 text-white" title={`${overdue.length} overdue`}>{counts.lent}</span>
+              ) : (
+                <span className={`text-[11px] font-normal ${activeSection === 'lent' ? 'text-orange-100' : 'text-slate-400'}`}>
+                  {counts.lent}
+                </span>
+              )}
             </button>
           </div>
 
@@ -957,10 +980,35 @@ export default function App() {
                 <span>Family Shelves</span>
               </div>
             </button>
+
+            <button
+              onClick={() => { setActiveSection('challenges'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'challenges' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Flag className="w-4 h-4" />
+                <span>Family Challenges</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => { setActiveSection('quotes'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'quotes' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Quote className="w-4 h-4" />
+                <span>My Quotes</span>
+              </div>
+              <span className={`text-[11px] font-normal ${activeSection === 'quotes' ? 'text-orange-100' : 'text-slate-400'}`}>{quoteCount}</span>
+            </button>
           </div>
         </div>
 
-        <div className="bg-white/80 border border-slate-200/80 p-3 rounded-2xl shadow-2xs">
+        <div className="mt-3 flex-shrink-0 bg-white/80 border border-slate-200/80 p-3 rounded-2xl shadow-2xs">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-bold text-slate-800">Unraid Storage</span>
             <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
@@ -1114,7 +1162,29 @@ export default function App() {
             <FamilyPage family={family} myBooks={books} onOpenSettings={() => setIsSettingsOpen(true)} onRefresh={loadFamily} />
           )}
 
-          {activeSection !== 'authors' && activeSection !== 'series' && activeSection !== 'year' && activeSection !== 'family' && activeSection !== 'new' && (
+          {activeSection === 'challenges' && <ChallengesPage />}
+
+          {activeSection === 'quotes' && (
+            <QuotesPage books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} />
+          )}
+
+          {['all', 'lent'].includes(activeSection) && overdue.length > 0 && (
+            <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-2xl space-y-2" role="alert">
+              <p className="text-xs font-bold text-red-700 flex items-center gap-1.5"><BellRing className="w-4 h-4" /> {overdue.length === 1 ? 'A lent book is overdue' : `${overdue.length} lent books are overdue`}</p>
+              <ul className="space-y-1.5">
+                {overdue.map(({ book, loan, status }) => (
+                  <li key={book.id} className="flex items-center gap-2 text-xs text-slate-700 flex-wrap">
+                    <button onClick={() => { setSelectedBook(book); setActiveEditionIndex(0); }} className="font-semibold hover:underline text-left">{book.workTitle}</button>
+                    <span className="text-slate-500">with {loan.to} · {loan.dueOn ? `${status.daysLate} day${status.daysLate === 1 ? '' : 's'} late` : `out ${status.daysOut} days`}</span>
+                    <button onClick={() => sendReminder(book, loan)} className="ml-auto px-2.5 py-1 rounded-lg bg-white border border-red-200 text-red-700 text-[11px] font-semibold hover:bg-red-50">Send a reminder</button>
+                  </li>
+                ))}
+              </ul>
+              {reminderNote && <p className="text-[11px] text-emerald-700">{reminderNote}</p>}
+            </div>
+          )}
+
+          {!['authors', 'series', 'year', 'family', 'new', 'challenges', 'quotes'].includes(activeSection) && (
             <div className="space-y-6">
               <div className="flex items-baseline justify-between">
                 <div>
@@ -1425,10 +1495,18 @@ export default function App() {
 
               <ReadingPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
 
+              <QuotesPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+
               <ShelvesPanel book={selectedBook} shelves={myShelves} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
 
               {selectedBook.owned !== false && (
-                <LendPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+                <CollectorPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+              )}
+
+              <FindItLinks book={selectedBook} prefs={prefs} />
+
+              {selectedBook.owned !== false && (
+                <LendPanel book={selectedBook} fromName={currentUser.displayName} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
               )}
 
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
@@ -1678,7 +1756,7 @@ export default function App() {
       )}
 
       {isSettingsOpen && settings && (
-        <SettingsModal settings={settings} currentUser={currentUser} onChange={setSettings} onFamilyChange={loadFamily} onImport={() => setIsImportOpen(true)} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal settings={settings} currentUser={currentUser} prefs={prefs} onPrefsChange={setPrefs} onChange={setSettings} onFamilyChange={loadFamily} onImport={() => setIsImportOpen(true)} onClose={() => setIsSettingsOpen(false)} />
       )}
 
       {/* COVER PICKERS */}
@@ -1871,6 +1949,9 @@ function AppleBookCard({ book, onClick, onAuthorClick }) {
         </button>
         {book.rating ? <StarRating value={book.rating} size="sm" /> : null}
         {currentLoan(book) && <p className="text-[10px] font-semibold text-sky-700 truncate">Lent to {currentLoan(book).to}</p>}
+        {(book.collector?.signed || book.collector?.firstEdition) && (
+          <p className="text-[10px] font-semibold text-amber-700 truncate">{[book.collector.signed && 'Signed', book.collector.firstEdition && '1st edition'].filter(Boolean).join(' · ')}</p>
+        )}
         {book.readingStatus === 'Reading' && progressOf(book) && (
           <div className="pt-1" title={progressOf(book).total ? `Page ${progressOf(book).page} of ${progressOf(book).total}` : `Page ${progressOf(book).page}`}>
             {progressOf(book).pct !== null ? (

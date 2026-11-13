@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -86,6 +86,26 @@ function migrate(db) {
           expires_at TEXT NOT NULL,
           used_by    TEXT REFERENCES users(id) ON DELETE SET NULL,
           used_at    TEXT
+        );
+      `);
+    }
+    if (current < 5) {
+      db.exec(`
+        -- Family reading challenges ("Read 10 books this summer") and who has joined them.
+        CREATE TABLE challenges (
+          id         TEXT PRIMARY KEY,
+          created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+          name       TEXT NOT NULL,
+          target     INTEGER NOT NULL,
+          starts_on  TEXT NOT NULL,
+          ends_on    TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE challenge_members (
+          challenge_id TEXT NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
+          user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          joined_at    TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (challenge_id, user_id)
         );
       `);
     }

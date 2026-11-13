@@ -97,3 +97,14 @@ api.setSignupMode = (mode) => request('PUT', '/api/admin/signups', { mode });
 api.listInvites = () => request('GET', '/api/admin/invites').then(d => d.invites);
 api.createInvite = (note, days) => request('POST', '/api/admin/invites', { note, days });
 api.revokeInvite = (code) => request('DELETE', `/api/admin/invites/${encodeURIComponent(code)}`);
+
+// Personal preferences (e.g. your public library for Libby)
+api.getPrefs = () => request('GET', '/api/me/prefs').then(d => d.prefs);
+api.setPrefs = (changes) => request('PUT', '/api/me/prefs', changes).then(d => d.prefs);
+
+// Family reading challenges
+api.challenges = () => request('GET', '/api/challenges').then(d => d.challenges);
+api.createChallenge = (c) => request('POST', '/api/challenges', c).then(d => d.challenges);
+api.joinChallenge = (id) => request('POST', `/api/challenges/${encodeURIComponent(id)}/join`).then(d => d.challenges);
+api.leaveChallenge = (id) => request('POST', `/api/challenges/${encodeURIComponent(id)}/leave`).then(d => d.challenges);
+api.deleteChallenge = (id) => request('DELETE', `/api/challenges/${encodeURIComponent(id)}`).then(d => d.challenges);

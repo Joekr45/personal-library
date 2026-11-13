@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { CalendarDays, NotebookPen, Check } from 'lucide-react';
+import { CalendarDays, NotebookPen, Check, Repeat } from 'lucide-react';
 import StarRating from './StarRating.jsx';
+import { timesRead, startReread, formatDate } from './reading.js';
 
 // "My reading" on a book's page: stars, when you started and finished it, and your notes.
 export default function ReadingPanel({ book, onUpdate }) {
@@ -29,6 +30,12 @@ export default function ReadingPanel({ book, onUpdate }) {
     </label>
   );
 
+  const count = timesRead(book);
+  const earlier = (book.reads || []).filter(r => r.started || r.finished);
+  const readAgain = () => {
+    if (confirm(`Start reading "${book.workTitle}" again? Your earlier read is kept in the history.`)) onUpdate(startReread(book));
+  };
+
   return (
     <div className="bg-amber-50/60 rounded-2xl p-4 border border-amber-200/70 space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -36,11 +43,26 @@ export default function ReadingPanel({ book, onUpdate }) {
         <StarRating value={book.rating} onChange={(rating) => onUpdate({ rating })} />
       </div>
       <div>
-        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 mb-1"><CalendarDays className="w-4 h-4 text-orange-500" /> Reading dates</div>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <span className="flex items-center gap-1.5 text-xs font-bold text-slate-800"><CalendarDays className="w-4 h-4 text-orange-500" /> Reading dates{earlier.length > 0 ? ' (this read)' : ''}</span>
+          {count > 1 && <span className="text-[11px] font-semibold text-orange-700">Read {count} times</span>}
+        </div>
         <div className="grid grid-cols-2 gap-2">
           {dateInput('dateStarted', 'Started')}
           {dateInput('dateFinished', 'Finished')}
         </div>
+        {earlier.length > 0 && (
+          <ul className="mt-1.5 text-[11px] text-slate-500 space-y-0.5">
+            {earlier.map((r, i) => (
+              <li key={i}>Read #{i + 1}: {formatDate(r.started) || '?'} → {formatDate(r.finished) || '?'}</li>
+            ))}
+          </ul>
+        )}
+        {book.readingStatus === 'Completed' && (
+          <button onClick={readAgain} className="mt-2 px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-amber-800 text-[11px] font-semibold flex items-center gap-1 hover:bg-amber-100">
+            <Repeat className="w-3.5 h-3.5" /> Read it again
+          </button>
+        )}
       </div>
       <div>
         <div className="flex items-center justify-between mb-1">

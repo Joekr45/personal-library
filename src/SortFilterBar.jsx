@@ -34,7 +34,7 @@ export const SORTERS = {
   published: desc(pubYear)
 };
 
-export const EMPTY_FILTERS = { shelf: '', language: '', format: '', rating: '' };
+export const EMPTY_FILTERS = { shelf: '', language: '', format: '', rating: '', collector: '' };
 
 export function applyFilters(books, filters) {
   return books.filter(b => {
@@ -44,6 +44,10 @@ export function applyFilters(books, filters) {
     if (filters.format && (e.format || '') !== filters.format) return false;
     if (filters.rating === 'unrated' && b.rating) return false;
     if (filters.rating && filters.rating !== 'unrated' && !(Number(b.rating) >= Number(filters.rating))) return false;
+    const c = b.collector || {};
+    if (filters.collector === 'signed' && !c.signed) return false;
+    if (filters.collector === 'first' && !c.firstEdition) return false;
+    if (filters.collector === 'any' && !(c.signed || c.firstEdition || c.condition || c.boughtFrom || c.pricePaid || c.boughtOn)) return false;
     return true;
   });
 }
@@ -79,7 +83,7 @@ export default function SortFilterBar({ books, sortBy, onSortChange, filters, on
         )}
       </div>
       {open && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-white border border-slate-200 rounded-2xl">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 bg-white border border-slate-200 rounded-2xl">
           {[['shelf', 'Shelf'], ['language', 'Language'], ['format', 'Format']].map(([key, label]) => (
             <label key={key} className="flex flex-col gap-0.5 text-[10px] uppercase font-semibold text-slate-400">
               {label}
@@ -97,6 +101,15 @@ export default function SortFilterBar({ books, sortBy, onSortChange, filters, on
               <option value="4">★★★★ and up</option>
               <option value="3">★★★ and up</option>
               <option value="unrated">Not rated yet</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-0.5 text-[10px] uppercase font-semibold text-slate-400">
+            Collector
+            <select value={filters.collector || ''} onChange={(e) => onFiltersChange({ ...filters, collector: e.target.value })} className={select}>
+              <option value="">Any</option>
+              <option value="signed">Signed copies</option>
+              <option value="first">First editions</option>
+              <option value="any">Has collector details</option>
             </select>
           </label>
         </div>
