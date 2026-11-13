@@ -46,12 +46,13 @@ import ListsPage from './src/ListsPage.jsx';
 import ReadingLogPage from './src/ReadingLogPage.jsx';
 import GiftsPage from './src/GiftsPage.jsx';
 import WishlistAlerts from './src/WishlistAlerts.jsx';
-import SidebarMenu from './src/SidebarMenu.jsx';
+import SidebarMenu, { AreaTabs, rememberSection, areaOf, sectionForArea } from './src/SidebarMenu.jsx';
 import HomePage from './src/HomePage.jsx';
 import TrashModal from './src/TrashModal.jsx';
 import DuplicatesModal from './src/DuplicatesModal.jsx';
 import BatchBar from './src/BatchBar.jsx';
 import BottomBar from './src/BottomBar.jsx';
+import ShelvesPage from './src/ShelvesPage.jsx';
 import ShelfMapPage from './src/ShelfMapPage.jsx';
 import BorrowPage from './src/BorrowPage.jsx';
 import NextReadPicker from './src/NextReadPicker.jsx';
@@ -402,6 +403,9 @@ export default function App() {
 
   // View state
   const [activeSection, setActiveSection] = useState('home');
+  // Tapping an area in the menu goes back to the tab you last used there.
+  useEffect(() => { rememberSection(activeSection); }, [activeSection]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('grid');
 
@@ -790,8 +794,6 @@ export default function App() {
             onSelect={(key) => { setActiveSection(key); setCurrentPage(1); stopSelecting(); if (key === 'family') loadFamily(); }}
             counts={{ ...counts, quotes: quoteCount }}
             alerts={{ overdue: overdue.length, inbox: inboxCount, borrow: borrowWaiting, newReleases: newReleases?.releases?.length || 0 }}
-            shelves={myShelves}
-            activeShelf={activeShelf}
             isFamily={isFamily}
             hidden={prefs.hiddenMenu || []}
           />
@@ -901,6 +903,17 @@ export default function App() {
           </div>
         )}
         <div className="flex-1 overflow-y-auto px-3 md:px-8 py-4 md:py-6 pb-24 md:pb-6">
+          <AreaTabs
+            active={activeSection}
+            onSelect={(key) => { setActiveSection(key); setCurrentPage(1); stopSelecting(); setNavTick(t => t + 1); if (key === 'family') loadFamily(); }}
+            counts={{ ...counts, quotes: quoteCount }}
+            alerts={{ overdue: overdue.length, inbox: inboxCount, borrow: borrowWaiting, newReleases: newReleases?.releases?.length || 0 }}
+            isFamily={isFamily}
+            hidden={prefs.hiddenMenu || []}
+          />
+          {activeSection === 'shelves' && (
+            <ShelvesPage shelves={myShelves} onOpen={(name) => { setActiveSection(`shelf:${name}`); setCurrentPage(1); }} />
+          )}
           {activeSection === 'authors' && (
             <AuthorPage
               books={books}
@@ -1272,10 +1285,13 @@ export default function App() {
 
       {!selectMode && (
         <BottomBar
-          active={isSidebarOpen ? 'menu' : activeSection}
-          inboxCount={inboxCount}
-          menuCount={borrowWaiting + overdue.length}
-          onGo={(key) => { setActiveSection(key); setCurrentPage(1); setSelectedBook(null); setNavTick(t => t + 1); }}
+          active={isSidebarOpen ? 'menu' : areaOf(activeSection)}
+          libraryCount={overdue.length}
+          peopleCount={inboxCount + borrowWaiting}
+          onGo={(area) => {
+            const key = area === 'home' ? 'home' : sectionForArea(area, { isFamily, hidden: prefs.hiddenMenu || [], counts });
+            setActiveSection(key); setCurrentPage(1); setSelectedBook(null); setNavTick(t => t + 1);
+          }}
           onScan={() => { setScannerInitialMode(null); setIsScanModalOpen(true); }}
           onMenu={() => setIsSidebarOpen(true)}
         />
