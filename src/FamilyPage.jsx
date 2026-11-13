@@ -44,7 +44,7 @@ export default function FamilyPage({ family, myBooks, onOpenSettings, onRefresh 
         family.members.length === 0 ? (
           <p className="p-8 text-center text-xs text-slate-500 bg-white border border-slate-200 rounded-2xl">
             Nobody else is sharing their library yet. Each person can turn it on in their Settings.
-            <button onClick={onRefresh} className="block mx-auto mt-2 font-semibold text-orange-600 underline">Check again</button>
+            <button onClick={onRefresh} className="tap block mx-auto mt-2 font-semibold text-orange-600 underline">Check again</button>
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -62,7 +62,7 @@ export default function FamilyPage({ family, myBooks, onOpenSettings, onRefresh 
       ) : (
         <div className="space-y-4">
           <div className="flex items-center gap-3 flex-wrap">
-            <button onClick={() => setMemberId(null)} className="text-xs font-semibold text-slate-500 flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Everyone</button>
+            <button onClick={() => setMemberId(null)} className="tap text-xs font-semibold text-slate-500 flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Everyone</button>
             <h3 className="text-lg font-bold text-slate-900">{member.displayName}'s shelves</h3>
             <div className="relative ml-auto w-full sm:w-64">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />

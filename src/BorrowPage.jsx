@@ -7,13 +7,13 @@ import { formatDate } from './reading.js';
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 const titleKey = (t) => String(t || '').trim().replace(/^(the|a|an)\s+/i, '');
 const STATUS = {
-  pending: ['Waiting for an answer', 'bg-amber-100 text-amber-800'],
+  pending: ['Waiting', 'bg-amber-100 text-amber-800'],
   lent: ['Borrowed', 'bg-emerald-100 text-emerald-800'],
   returned: ['Returned', 'bg-slate-100 text-slate-600'],
   declined: ['Not this time', 'bg-rose-100 text-rose-700'],
   cancelled: ['Cancelled', 'bg-slate-100 text-slate-500']
 };
-const Badge = ({ status }) => <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${STATUS[status]?.[1] || ''}`}>{STATUS[status]?.[0] || status}</span>;
+const Badge = ({ status }) => <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap flex-shrink-0 ${STATUS[status]?.[1] || ''}`}>{STATUS[status]?.[0] || status}</span>;
 const Avatar = ({ p, size = 'w-10 h-10' }) => (
   <div className={`${size} rounded-full bg-gradient-to-br ${p?.color || 'from-slate-400 to-slate-500'} text-white font-bold flex items-center justify-center flex-shrink-0`}>{(p?.displayName || '?').charAt(0).toUpperCase()}</div>
 );
@@ -120,7 +120,7 @@ export default function BorrowPage({ myBooks = [], onOpenSettings, onWaitingChan
             <button onClick={() => answer(r.id, 'returned')} className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold flex items-center gap-1"><Undo2 className="w-3.5 h-3.5" /> It's back</button>
           )}
           {r.mine && r.status === 'pending' && (
-            <button onClick={() => answer(r.id, 'cancel')} className="text-[11px] font-semibold text-slate-500 underline">Cancel my request</button>
+            <button onClick={() => answer(r.id, 'cancel')} className="tap text-[11px] font-semibold text-slate-500 underline">Cancel my request</button>
           )}
         </div>
       </div>
@@ -184,7 +184,7 @@ export default function BorrowPage({ myBooks = [], onOpenSettings, onWaitingChan
         ) : (
           <>
             <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={() => setPersonId(null)} className="text-xs font-semibold text-slate-500 flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Everyone</button>
+              <button onClick={() => setPersonId(null)} className="tap text-xs font-semibold text-slate-500 flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Everyone</button>
               <h3 className="text-lg font-bold text-slate-900">{person.displayName}'s library</h3>
               <div className="relative ml-auto w-full sm:w-64">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -201,7 +201,7 @@ export default function BorrowPage({ myBooks = [], onOpenSettings, onWaitingChan
                   <div className="mt-auto pt-1">
                     {b.myRequest ? <Badge status={b.myRequest} />
                       : b.out ? <span className="text-[10px] text-slate-500">Lent out right now</span>
-                        : <button onClick={() => { setAsking(b); setMessage(''); }} className="w-full px-2 py-1 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-semibold">Ask to borrow</button>}
+                        : <button onClick={() => { setAsking(b); setMessage(''); }} className="w-full px-2 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-semibold">Ask to borrow</button>}
                   </div>
                 </div>
               ))}

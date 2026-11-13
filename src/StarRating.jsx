@@ -2,7 +2,8 @@ import React from 'react';
 
 // 1–5 stars. Tap the left half of a star for a half star; tap the current rating again to clear it.
 export default function StarRating({ value, onChange, size = 'md' }) {
-  const px = size === 'sm' ? 12 : 26;
+  // Bigger stars when you can tap them, so half-stars are easy to hit on a phone.
+  const px = size === 'sm' ? 12 : onChange ? 32 : 26;
   const rating = Number(value) || 0;
   const interactive = Boolean(onChange);
 

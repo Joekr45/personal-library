@@ -51,7 +51,7 @@ export default function KindleImport({ books, onUpdateBook, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4" onClick={onClose}>
-      <div className="bg-white sm:rounded-3xl shadow-2xl max-w-lg w-full flex flex-col max-h-full sm:max-h-[90vh]" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Import Kindle highlights">
+      <div className="bg-white sm:rounded-3xl shadow-2xl max-w-lg w-full flex flex-col h-full sm:h-auto sm:max-h-[90vh]" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Import Kindle highlights">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <h3 className="text-base font-bold text-slate-900">Import Kindle highlights</h3>
           <button onClick={onClose} aria-label="Close" className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center"><X className="w-4 h-4" /></button>

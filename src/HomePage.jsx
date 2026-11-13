@@ -60,8 +60,8 @@ export default function HomePage({ books, currentUser, overdue, inboxCount, newC
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2"><BookOpen className="w-4 h-4 text-orange-500" /> Currently reading</h3>
           <div className="flex items-center gap-3">
-            {books.some(b => b.owned !== false && b.readingStatus === 'Unread') && <button onClick={onPickNext} className="text-[11px] font-semibold text-orange-600 flex items-center gap-1"><Dices className="w-3.5 h-3.5" /> Pick my next read</button>}
-            {reading.length > 0 && <button onClick={() => onGo('reading')} className="text-[11px] font-semibold text-slate-500">See all</button>}
+            {books.some(b => b.owned !== false && b.readingStatus === 'Unread') && <button onClick={onPickNext} className="tap text-[11px] font-semibold text-orange-600 flex items-center gap-1"><Dices className="w-3.5 h-3.5" /> Pick my next read</button>}
+            {reading.length > 0 && <button onClick={() => onGo('reading')} className="tap text-[11px] font-semibold text-slate-500">See all</button>}
           </div>
         </div>
         {reading.length === 0 ? (
@@ -117,7 +117,7 @@ export default function HomePage({ books, currentUser, overdue, inboxCount, newC
         <section className="space-y-2" aria-label="Recent activity">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2"><Activity className="w-4 h-4 text-orange-500" /> Recently from family &amp; friends</h3>
-            <button onClick={() => onGo('activity')} className="text-[11px] font-semibold text-slate-500">See all</button>
+            <button onClick={() => onGo('activity')} className="tap text-[11px] font-semibold text-slate-500">See all</button>
           </div>
           <ul className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
             {feed.map(i => (
