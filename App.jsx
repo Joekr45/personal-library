@@ -95,6 +95,8 @@ import HomePage from './src/HomePage.jsx';
 import TrashModal from './src/TrashModal.jsx';
 import DuplicatesModal from './src/DuplicatesModal.jsx';
 import BatchBar from './src/BatchBar.jsx';
+import BottomBar from './src/BottomBar.jsx';
+import { saveSnapshot, loadSnapshot, queueChange, sendPending, pendingChanges, clearOffline, isNetworkError } from './src/offline.js';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -140,6 +142,9 @@ export default function App() {
   const [navTick, setNavTick] = useState(0); // changes on every menu tap, so pages reload fresh
   const [bookTab, setBookTab] = useState('reading'); // which tab of the book page is showing (kept between books)
   const [isTrashOpen, setIsTrashOpen] = useState(false);
+  // No signal: show the copy of the library kept on this device; changes wait in an outbox.
+  const [offline, setOffline] = useState(false);
+  const [pendingCount, setPendingCount] = useState(() => pendingChanges().length);
   const [isDuplicatesOpen, setIsDuplicatesOpen] = useState(false);
   // Selecting several books to change them at once
   const [selectMode, setSelectMode] = useState(false);
@@ -207,7 +212,17 @@ export default function App() {
         setHasUsers(hasUsers);
         if (!hasUsers) setAuthMode('register');
       })
-      .catch(() => setAuthError('Could not reach the server. Please refresh the page.'))
+      .catch((err) => {
+        // No connection, but this device has a copy of the library: open that.
+        const snap = isNetworkError(err) ? loadSnapshot() : null;
+        if (snap?.user) {
+          setOffline(true);
+          setHasUsers(true);
+          setCurrentUser(snap.user);
+        } else {
+          setAuthError('Could not reach the server. Please refresh the page.');
+        }
+      })
       .finally(() => setIsCheckingSession(false));
     // Clean up data left in the browser by the old version of the app.
     ['personal_library_users', 'personal_library_current_user', 'personal_library_data']
@@ -227,9 +242,74 @@ export default function App() {
     api.recommendations().then(r => setInboxCount(r.inbox.length)).catch(() => setInboxCount(0));
     loadFamily();
     api.listBooks()
-      .then((list) => { setBooks(list); if (list.length) loadNewReleases(); else setNewReleases({ releases: [], authorsChecked: 0 }); })
-      .catch(err => setLibraryError(err.message))
+      .then((list) => {
+        setOffline(false);
+        setBooks(list);
+        if (list.length) loadNewReleases(); else setNewReleases({ releases: [], authorsChecked: 0 });
+        if (pendingChanges().length) reconnect();
+      })
+      .catch((err) => {
+        const snap = isNetworkError(err) ? loadSnapshot() : null;
+        if (snap && snap.user?.id === currentUser.id) {
+          setOffline(true);
+          setBooks(snap.books || []);
+        } else {
+          setLibraryError(err.message);
+        }
+      })
       .finally(() => setIsLibraryLoaded(true));
+  }, [currentUser]);
+
+  // Keep a copy of the library on this device for when there's no signal.
+  useEffect(() => {
+    if (currentUser && isLibraryLoaded) saveSnapshot(currentUser, books);
+  }, [books, currentUser, isLibraryLoaded]);
+
+  // Back online: send the changes made offline, then get the latest library from the server.
+  const reconnecting = useRef(false);
+  const reconnect = async () => {
+    if (reconnecting.current) return;
+    reconnecting.current = true;
+    try {
+      await api.getSession();
+      const result = await sendPending(api);
+      setPendingCount(pendingChanges().length);
+      if (result.remaining) return; // dropped again
+      const list = await api.listBooks();
+      setBooks(list);
+      setOffline(false);
+      if (result.failed) setSaveError(`${result.failed} change${result.failed === 1 ? '' : 's'} made offline couldn't be saved (the book may have been changed elsewhere).`);
+    } catch {
+      // still offline
+    } finally {
+      reconnecting.current = false;
+    }
+  };
+  useEffect(() => {
+    if (!offline) return undefined;
+    const tryNow = () => reconnect();
+    window.addEventListener('online', tryNow);
+    const timer = setInterval(tryNow, 20000);
+    return () => { window.removeEventListener('online', tryNow); clearInterval(timer); };
+  }, [offline]);
+  const saveLater = (op) => { queueChange(op); setPendingCount(pendingChanges().length); setOffline(true); };
+
+  // Opening the app from a notification (or a link like /?section=activity) goes to that page.
+  const openFromLink = (href) => {
+    try {
+      const section = new URL(href, window.location.origin).searchParams.get('section');
+      if (section && /^[a-z]{2,20}$/.test(section)) { setActiveSection(section); setCurrentPage(1); setSelectedBook(null); }
+    } catch { /* ignore */ }
+  };
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    if (new URLSearchParams(window.location.search).get('section')) {
+      openFromLink(window.location.href);
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    const onMessage = (e) => { if (e.data?.type === 'open') openFromLink(e.data.url); };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
   }, [currentUser]);
 
   // If the server says our sign-in expired, go back to the sign-in screen.
@@ -253,6 +333,10 @@ export default function App() {
       if (!saved.series && settings?.hardcover?.connected) fillSeries(saved);
       return saved;
     } catch (err) {
+      if (isNetworkError(err)) {
+        saveLater({ type: 'create', tempId, book });
+        return { ...book, id: tempId };
+      }
       setBooks(prev => prev.filter(b => b.id !== tempId));
       handleApiError(err);
       return null;
@@ -303,6 +387,10 @@ export default function App() {
       setBooks(prev => prev.map(b => (b.id === bookId ? saved : b)));
       return saved;
     } catch (err) {
+      if (isNetworkError(err)) {
+        saveLater({ type: 'update', id: bookId, changes });
+        return { ...before, ...changes };
+      }
       setBooks(prev => prev.map(b => (b.id === bookId ? before : b)));
       setSelectedBook(prev => (prev && prev.id === bookId ? before : prev));
       handleApiError(err);
@@ -332,6 +420,7 @@ export default function App() {
       await api.deleteBook(bookId);
       offerUndo(`Deleted “${title || 'book'}”.`, [bookId]);
     } catch (err) {
+      if (isNetworkError(err)) { saveLater({ type: 'delete', id: bookId }); return; }
       setBooks(before);
       handleApiError(err);
     }
@@ -426,6 +515,10 @@ export default function App() {
 
   const handleLogout = async () => {
     await api.logout().catch(() => {});
+    clearOffline(); // don't leave a copy of the library on a shared device
+    window.caches?.delete('personal-library-covers').catch(() => {});
+    setPendingCount(0);
+    setOffline(false);
     setCurrentUser(null);
     setSelectedBook(null);
     setIsScanModalOpen(false);
@@ -965,7 +1058,17 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-3 md:px-8 py-4 md:py-6">
+        {offline && (
+          <div className="px-3 md:px-8 py-2 bg-amber-100 border-b border-amber-200 text-amber-900 text-xs flex items-center gap-2 flex-shrink-0" role="status">
+            <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+            <span className="flex-1">
+              <b>No connection.</b> Showing the copy of your library saved on this device.
+              {pendingCount > 0 ? ` ${pendingCount} change${pendingCount === 1 ? '' : 's'} will be saved when you're back online.` : ' Changes you make will be saved when you\'re back online.'}
+            </span>
+            <button onClick={reconnect} className="px-2 py-1 rounded-lg bg-white/70 font-semibold">Try now</button>
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto px-3 md:px-8 py-4 md:py-6 pb-24 md:pb-6">
           {activeSection === 'authors' && (
             <AuthorPage
               books={books}
@@ -1678,6 +1781,16 @@ export default function App() {
         />
       )}
 
+      {!selectMode && (
+        <BottomBar
+          active={isSidebarOpen ? 'menu' : activeSection}
+          inboxCount={inboxCount}
+          onGo={(key) => { setActiveSection(key); setCurrentPage(1); setSelectedBook(null); setNavTick(t => t + 1); }}
+          onScan={() => { setScannerInitialMode(null); setIsScanModalOpen(true); }}
+          onMenu={() => setIsSidebarOpen(true)}
+        />
+      )}
+
       {isTrashOpen && (
         <TrashModal
           onClose={() => setIsTrashOpen(false)}
@@ -1711,7 +1824,7 @@ export default function App() {
       )}
 
       {undo && (
-        <div className={`fixed ${selectMode ? 'bottom-24' : 'bottom-4'} left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs shadow-2xl flex items-center gap-3 ring-1 ring-white/10`} role="status">
+        <div className={`fixed ${selectMode ? 'bottom-24' : 'bottom-20 md:bottom-4'} left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs shadow-2xl flex items-center gap-3 ring-1 ring-white/10`} role="status">
           <span>{undo.message}</span>
           {undo.ids.length > 0 && <button onClick={undoDelete} className="font-bold text-orange-400 hover:text-orange-300">Undo</button>}
           <button onClick={() => setUndo(null)} aria-label="Dismiss" className="text-white/60 hover:text-white">✕</button>

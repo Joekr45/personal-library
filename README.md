@@ -25,6 +25,12 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **My Year** (menu): books finished this year, a **yearly goal** with "ahead/behind schedule", books per month, pages, average rating, top author, and **Up next in your series**.
 - Book lists have a **sort menu** (title, author, recently added, recently finished, rating, year published — remembered on each device) and **filters** (shelf, language, format, rating).
 
+## On your phone
+
+- **Bottom bar** (phones): Home, Library, a big Scan button, Activity (with a red number for new recommendations) and More (the full menu).
+- **No signal?** The app keeps a copy of your library on the device, so it still opens (and "Own it?" still checks your shelves) without a connection. Changes made offline wait and are saved automatically when you're back online (an amber bar shows how many are waiting). Signing out removes the copy from the device.
+- **Notifications** (Settings → Notifications, per device): pop-ups even when the app is closed for: someone recommending you a book, new posts in your book clubs (never with spoilers), an overdue loan, new books from your authors, and (off by default) family finishing or reviewing a book. Choose which ones you want. Tapping a notification opens the right page. Needs the https:// address; on iPhone, add the app to the Home Screen first.
+
 ## Keeping your library safe
 
 - **Undo**: after deleting a book, an **Undo** button appears for a few seconds.

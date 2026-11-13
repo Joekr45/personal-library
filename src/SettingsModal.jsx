@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Settings, CheckCircle2, RefreshCw, ExternalLink, AlertTriangle, Download, KeyRound, Users, Database,
-  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info, Menu, Search, Copy
+  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info, Menu, Search, Copy, Bell
 } from 'lucide-react';
 import { findDuplicates } from './duplicates.js';
 import { HIDEABLE } from './SidebarMenu.jsx';
@@ -112,6 +112,91 @@ function FixAuthorsButton({ books, onBookSaved }) {
   }
   if (unknown.length === 0) return null;
   return <button onClick={run} className={buttonClass}><Search className="w-3.5 h-3.5" /> Find missing authors ({unknown.length} book{unknown.length === 1 ? '' : 's'})</button>;
+}
+
+// ---------- Notifications on this phone/computer ----------
+const NOTIFY_KINDS = [
+  ['recommendations', 'Someone recommends me a book'],
+  ['clubs', 'New posts in my book clubs'],
+  ['overdue', 'A book I lent is overdue'],
+  ['newReleases', 'New books from my authors'],
+  ['activity', 'Family finish or review a book']
+];
+function NotificationsSection() {
+  const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext;
+  const [info, setInfo] = useState(null);
+  const [subscribed, setSubscribed] = useState(false);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const isIphone = /iPhone|iPad/.test(navigator.userAgent);
+  const installed = window.matchMedia?.('(display-mode: standalone)').matches;
+  useEffect(() => {
+    api.pushInfo().then(setInfo).catch(() => {});
+    if (supported) navigator.serviceWorker.ready.then(r => r.pushManager.getSubscription()).then(sub => setSubscribed(Boolean(sub))).catch(() => {});
+  }, []);
+  const turnOn = async () => {
+    setBusy(true); setMessage('');
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Notifications were blocked. Allow them for this site in your browser settings, then try again.');
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(atob(info.publicKey.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)) });
+      await api.pushSubscribe(sub.toJSON());
+      setSubscribed(true);
+      setMessage('Notifications are on for this device.');
+    } catch (err) { setMessage(err.message); } finally { setBusy(false); }
+  };
+  const turnOff = async () => {
+    setBusy(true); setMessage('');
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) { await api.pushUnsubscribe(sub.endpoint).catch(() => {}); await sub.unsubscribe(); }
+      setSubscribed(false);
+      setMessage('Notifications are off for this device.');
+    } catch (err) { setMessage(err.message); } finally { setBusy(false); }
+  };
+  const toggleKind = async (kind) => {
+    const next = { ...info.prefs, [kind]: !info.prefs[kind] };
+    setInfo({ ...info, prefs: next });
+    try { setInfo({ ...info, prefs: await api.pushPrefs({ [kind]: next[kind] }) }); } catch (err) { setMessage(err.message); }
+  };
+  return (
+    <Section icon={Bell} title="Notifications">
+      {!supported ? (
+        <p className="text-slate-500">
+          {isIphone && !installed
+            ? 'On iPhone, notifications work once the app is on your Home Screen: tap Share → "Add to Home Screen", open it from there, then come back here.'
+            : 'This browser can\'t show notifications for the library (they need the secure https:// address).'}
+        </p>
+      ) : (
+        <>
+          <p className="text-slate-500">Get a notification on this {/Mobi|Android/i.test(navigator.userAgent) ? 'phone' : 'device'} even when the app is closed. Turn it on separately on each phone or computer.</p>
+          <div className="flex gap-2 flex-wrap">
+            {subscribed ? (
+              <>
+                <button onClick={async () => { const r = await api.pushTest().catch(e => ({ error: e.message })); setMessage(r.error || (r.sent ? 'Test sent! It should pop up in a moment.' : 'Nothing was delivered. Try turning notifications off and on again.')); }} className={buttonClass}><Bell className="w-3.5 h-3.5" /> Send a test</button>
+                <button onClick={turnOff} disabled={busy} className={buttonClass}>Turn off on this device</button>
+              </>
+            ) : (
+              <button onClick={turnOn} disabled={busy || !info} className={buttonClass}><Bell className="w-3.5 h-3.5" /> {busy ? 'Turning on…' : 'Turn on notifications on this device'}</button>
+            )}
+          </div>
+        </>
+      )}
+      {message && <p className="text-slate-700">{message}</p>}
+      {info && (
+        <div className="space-y-1">
+          <p className="text-[10px] uppercase font-semibold text-slate-400">Tell me when{info.devices ? ` (${info.devices} device${info.devices === 1 ? '' : 's'} on)` : ''}</p>
+          {NOTIFY_KINDS.map(([kind, label]) => (
+            <label key={kind} className="flex items-center gap-2 text-slate-700">
+              <input type="checkbox" checked={Boolean(info.prefs[kind])} onChange={() => toggleKind(kind)} className="accent-orange-500" /> {label}
+            </label>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
 }
 
 // ---------- Appearance ----------
@@ -583,6 +668,7 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
             <button onClick={onOpenTrash} className={buttonClass}><Trash2 className="w-3.5 h-3.5" /> Recently deleted</button>
             {currentUser?.circle !== 'friend' && <SharingToggle onChange={onFamilyChange} />}
           </Section>
+          <NotificationsSection />
           <ActivitySection />
           <MenuSection prefs={prefs} onPrefsChange={onPrefsChange} isFamily={currentUser?.circle !== 'friend'} />
           <AppearanceSection />
