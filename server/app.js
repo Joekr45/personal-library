@@ -201,6 +201,19 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         .map(l => ({ to: cleanText(l?.to, 100), lentOn: date(l?.lentOn), returnedOn: date(l?.returnedOn) }))
         .filter(l => l.to);
     }
+    // My shelves (tags): up to 50 short names per book, no duplicates (ignoring capitals).
+    if (data.tags !== undefined) {
+      const seen = new Set();
+      data.tags = (Array.isArray(data.tags) ? data.tags : [])
+        .map(t => cleanText(t, 40))
+        .filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
+        .slice(0, 50);
+    }
+    // Reading progress: the page you're on.
+    if (data.currentPage !== undefined) {
+      const p = Math.round(Number(data.currentPage));
+      data.currentPage = data.currentPage !== null && data.currentPage !== '' && p >= 0 && p <= 100000 ? p : null;
+    }
     for (const field of ['dateStarted', 'dateFinished']) {
       if (data[field] !== undefined && data[field] !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(data[field]))) {
         throw new HttpError(400, 'Dates must look like 2026-11-11.');
@@ -708,7 +721,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     const user = requireUser(req);
     const rows = db.prepare('SELECT data, created_at FROM books WHERE user_id = ? ORDER BY created_at').all(user.id);
     const columns = ['Title', 'Author', 'Series', 'Series #', 'Shelf', 'Owned', 'Reading Status', 'ISBN13', 'Format', 'Language',
-      'Publisher', 'Year Published', 'My Rating', 'Date Read', 'Date Added', 'Notes'];
+      'Publisher', 'Year Published', 'My Rating', 'Date Read', 'Date Added', 'Notes', 'Bookshelves', 'Current Page'];
     const cell = (v) => {
       const text = v === null || v === undefined ? '' : String(v);
       return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -721,7 +734,8 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         b.workTitle, b.author, b.series, b.seriesNumber, b.shelfLocation,
         b.owned === false ? 'Wishlist' : 'Owned', b.readingStatus,
         e.isbn && e.isbn !== 'Pending Scan' ? e.isbn : '', e.format, e.language, e.publisher,
-        (String(e.published || '').match(/\d{4}/) || [''])[0], b.rating, b.dateFinished, row.created_at.slice(0, 10), b.notes
+        (String(e.published || '').match(/\d{4}/) || [''])[0], b.rating, b.dateFinished, row.created_at.slice(0, 10), b.notes,
+        (b.tags || []).join(', '), b.currentPage
       ].map(cell).join(','));
     }
     const csv = '\ufeff' + lines.join('\r\n') + '\r\n'; // the mark at the start helps Excel read accents correctly

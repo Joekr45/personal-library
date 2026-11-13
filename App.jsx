@@ -38,7 +38,8 @@ import {
   BadgeCheck,
   HandHelping,
   ShoppingBag,
-  Sparkles
+  Sparkles,
+  Tags
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
@@ -59,6 +60,9 @@ import ShoppingList from './src/ShoppingList.jsx';
 import { sameBook, currentLoan } from './src/matching.js';
 import ImportModal from './src/ImportModal.jsx';
 import NewForYouPage from './src/NewForYouPage.jsx';
+import ShelvesPanel from './src/ShelvesPanel.jsx';
+import ProgressPanel from './src/ProgressPanel.jsx';
+import { allShelves, hasTag, renameTag, tagsOf, progressOf } from './src/shelves.js';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -340,6 +344,25 @@ export default function App() {
     return Object.values(authorMap).sort((a, b) => b.count - a.count);
   }, [books]);
 
+  const myShelves = useMemo(() => allShelves(books), [books]);
+  const activeShelf = activeSection.startsWith('shelf:') ? activeSection.slice(6) : null;
+
+  // Rename or remove one of your shelves on every book that's on it.
+  const renameShelf = async (oldName, newName) => {
+    const onShelf = booksRef.current.filter(b => hasTag(b, oldName));
+    for (const b of onShelf) await updateBook(b.id, { tags: renameTag(b, oldName, newName) });
+    setActiveSection(newName ? `shelf:${newName}` : 'all');
+    setCurrentPage(1);
+  };
+  const askRenameShelf = () => {
+    const name = prompt('New name for this shelf:', activeShelf);
+    const clean = String(name || '').trim().slice(0, 40);
+    if (clean && clean !== activeShelf) renameShelf(activeShelf, clean);
+  };
+  const askDeleteShelf = () => {
+    if (confirm(`Remove the shelf "${activeShelf}"? The books stay in your library.`)) renameShelf(activeShelf, '');
+  };
+
   const counts = useMemo(() => {
     return {
       all: books.filter(b => b.owned !== false).length,
@@ -360,6 +383,7 @@ export default function App() {
         (b.workTitle || '').toLowerCase().includes(q) ||
         (b.author || '').toLowerCase().includes(q) ||
         (b.series && b.series.toLowerCase().includes(q)) ||
+        tagsOf(b).some(t => t.toLowerCase().includes(q)) ||
         (b.editions || []).some(e => String(e.isbn || '').toLowerCase().includes(q));
 
       if (!matchesSearch) return false;
@@ -371,6 +395,7 @@ export default function App() {
       if (activeSection === 'completed') return b.readingStatus === 'Completed' && b.owned !== false;
       if (activeSection === 'wishlist') return b.owned === false;
       if (activeSection === 'lent') return Boolean(currentLoan(b));
+      if (activeSection.startsWith('shelf:')) return hasTag(b, activeSection.slice(6));
       return true;
     });
     return applyFilters(matching, filters).sort(SORTERS[sortBy] || byTitle);
@@ -829,6 +854,28 @@ export default function App() {
           </div>
 
           <div className="space-y-1">
+            <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">My Shelves</p>
+            {myShelves.length === 0 && (
+              <p className="text-[11px] text-slate-400 px-3 leading-snug">Make your own shelves (e.g. “Beach reads”) from any book's page.</p>
+            )}
+            {myShelves.map(s => (
+              <button
+                key={s.name}
+                onClick={() => { setActiveSection(`shelf:${s.name}`); setCurrentPage(1); }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                  activeShelf === s.name ? 'bg-violet-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Tags className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{s.name}</span>
+                </div>
+                <span className={`text-[11px] font-normal ${activeShelf === s.name ? 'text-violet-100' : 'text-slate-400'}`}>{s.count}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1">
             <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">Explore</p>
 
             <button
@@ -1078,7 +1125,18 @@ export default function App() {
                     {activeSection === 'completed' && 'Finished Books'}
                     {activeSection === 'wishlist' && 'Missing / Wishlist'}
                     {activeSection === 'lent' && 'Lent Out'}
+                    {activeShelf && `${activeShelf} (${filteredBooks.length})`}
                   </h2>
+                  {activeShelf && (
+                    <div className="mt-1.5 flex gap-2">
+                      <button onClick={askRenameShelf} className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                        <Pencil className="w-3.5 h-3.5" /> Rename shelf
+                      </button>
+                      <button onClick={askDeleteShelf} className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-red-50 hover:text-red-600 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                        <Trash2 className="w-3.5 h-3.5" /> Remove shelf
+                      </button>
+                    </div>
+                  )}
                   {activeSection === 'wishlist' && counts.wishlist > 0 && (
                     <button onClick={() => setIsShoppingListOpen(true)} className="mt-1.5 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5">
                       <ShoppingBag className="w-3.5 h-3.5" /> Shopping list
@@ -1201,6 +1259,11 @@ export default function App() {
                             <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700">
                               {book.readingStatus}
                             </span>
+                            {book.readingStatus === 'Reading' && progressOf(book) && (
+                              <div className="text-[10px] text-orange-600 font-semibold mt-0.5">
+                                {progressOf(book).pct !== null ? `${progressOf(book).pct}%` : `Page ${progressOf(book).page}`}
+                              </div>
+                            )}
                           </td>
                           <td className="py-3 px-4 font-mono text-slate-500">
                             {book.editions[0]?.isbn || 'N/A'}
@@ -1356,7 +1419,13 @@ export default function App() {
                 </div>
               </div>
 
+              {selectedBook.readingStatus === 'Reading' && (
+                <ProgressPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+              )}
+
               <ReadingPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+
+              <ShelvesPanel book={selectedBook} shelves={myShelves} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
 
               {selectedBook.owned !== false && (
                 <LendPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
@@ -1802,6 +1871,20 @@ function AppleBookCard({ book, onClick, onAuthorClick }) {
         </button>
         {book.rating ? <StarRating value={book.rating} size="sm" /> : null}
         {currentLoan(book) && <p className="text-[10px] font-semibold text-sky-700 truncate">Lent to {currentLoan(book).to}</p>}
+        {book.readingStatus === 'Reading' && progressOf(book) && (
+          <div className="pt-1" title={progressOf(book).total ? `Page ${progressOf(book).page} of ${progressOf(book).total}` : `Page ${progressOf(book).page}`}>
+            {progressOf(book).pct !== null ? (
+              <div className="flex items-center gap-1.5">
+                <div className="flex-1 h-1.5 rounded-full bg-orange-100 overflow-hidden">
+                  <div className="h-full bg-orange-500 rounded-full" style={{ width: `${progressOf(book).pct}%` }} />
+                </div>
+                <span className="text-[10px] font-semibold text-orange-600">{progressOf(book).pct}%</span>
+              </div>
+            ) : (
+              <span className="text-[10px] font-semibold text-orange-600">Page {progressOf(book).page}</span>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between pt-1 text-[10px]">
           <span className="text-slate-400 flex items-center gap-1 font-medium">
             <span className={`w-1.5 h-1.5 rounded-full ${book.readingStatus === 'Reading' ? 'bg-orange-500' : book.readingStatus === 'Completed' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
