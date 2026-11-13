@@ -53,7 +53,7 @@ export default function QuotesPage({ books, onOpenBook, onUpdateBook }) {
                     — <b className="text-slate-700">{item.book.workTitle}</b>, {item.book.author}{item.quote.page ? ` · p. ${item.quote.page}` : ''}
                   </button>
                   <span className="ml-auto flex-shrink-0 text-slate-400">{formatDate(item.quote.addedOn)}</span>
-                  <button onClick={() => copy(item)} aria-label="Copy quote" className="flex-shrink-0 hover:text-emerald-700"><Copy className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => copy(item)} aria-label="Copy quote" className="tap flex-shrink-0 hover:text-emerald-700"><Copy className="w-4 h-4" /></button>
                 </figcaption>
               </figure>
             ))}

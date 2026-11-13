@@ -1274,6 +1274,7 @@ export default function App() {
         <BottomBar
           active={isSidebarOpen ? 'menu' : activeSection}
           inboxCount={inboxCount}
+          menuCount={borrowWaiting + overdue.length}
           onGo={(key) => { setActiveSection(key); setCurrentPage(1); setSelectedBook(null); setNavTick(t => t + 1); }}
           onScan={() => { setScannerInitialMode(null); setIsScanModalOpen(true); }}
           onMenu={() => setIsSidebarOpen(true)}

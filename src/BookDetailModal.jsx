@@ -150,7 +150,12 @@ export default function BookDetailModal({ setActiveEditionIndex, onAddCopy, onCh
           {/* The book's boxes, grouped into tabs so the page isn't one long scroll. */}
           <div className="flex bg-slate-100 p-1 rounded-2xl text-xs gap-1 sticky top-0 z-10" role="tablist" aria-label="Book sections">
             {[['reading', 'My Reading'], ['about', 'About'], ['notes', 'Review & Quotes'], ['more', 'Shelves & More']].map(([id, label]) => (
-              <button key={id} role="tab" aria-selected={bookTab === id} onClick={() => setBookTab(id)}
+              <button key={id} role="tab" aria-selected={bookTab === id} onClick={(e) => {
+                setBookTab(id);
+                // On a phone the tabs can be far down: bring them (and what's under them) into view.
+                const bar = e.currentTarget.parentElement;
+                if (bar.getBoundingClientRect().top > window.innerHeight * 0.45) bar.scrollIntoView({ block: 'start', behavior: 'smooth' });
+              }}
                 className={`flex-1 py-2 rounded-xl font-semibold transition-all ${bookTab === id ? 'bg-white shadow-xs text-orange-600' : 'text-slate-500 hover:text-slate-900'}`}>
                 {label}
               </button>

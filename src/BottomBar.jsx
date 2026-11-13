@@ -2,7 +2,7 @@ import React from 'react';
 import { Home, Library, ScanBarcode, Activity, Menu } from 'lucide-react';
 
 // On phones: quick buttons along the bottom, so the side menu isn't needed for everyday things.
-export default function BottomBar({ active, onGo, onScan, onMenu, inboxCount }) {
+export default function BottomBar({ active, onGo, onScan, onMenu, inboxCount, menuCount = 0 }) {
   const item = (key, label, Icon, onClick, badge) => (
     <button key={key} onClick={onClick} aria-current={active === key ? 'page' : undefined}
       className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-semibold relative ${active === key ? 'text-orange-600' : 'text-slate-500'}`}>
@@ -21,7 +21,7 @@ export default function BottomBar({ active, onGo, onScan, onMenu, inboxCount }) 
         </button>
       </div>
       {item('activity', 'Activity', Activity, () => onGo('activity'), inboxCount)}
-      {item('menu', 'More', Menu, onMenu)}
+      {item('menu', 'More', Menu, onMenu, menuCount)}
     </nav>
   );
 }
