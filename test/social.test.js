@@ -13,8 +13,9 @@ const notFound = { ok: false, status: 404, json: async () => ({}) };
 const fakeFetch = async (url) => {
   url = String(url);
   if (url.includes('openlibrary.org/works/OL45W.json')) {
-    return reply({ description: { value: 'A young woman marries a widower and moves to Manderley.' }, subjects: ['Fiction', 'Gothic fiction', 'Accessible book', 'Psychological fiction', 'nyt:bestsellers'] });
+    return reply({ description: { value: 'A young woman marries a widower and moves to Manderley.' }, subjects: ['Fiction', 'Gothic fiction', 'Accessible book', 'Psychological fiction', 'nyt:bestsellers'], authors: [{ author: { key: '/authors/OL77A' } }] });
   }
+  if (url.includes('openlibrary.org/authors/OL77A.json')) return reply({ name: 'Daphne du Maurier' });
   if (url.includes('openlibrary.org/works/OL45W/ratings.json')) return reply({ summary: { average: 4.1, count: 120 } });
   if (url.includes('googleapis.com/books/v1/volumes') && url.includes('filter=ebooks')) {
     return reply({ items: [{ volumeInfo: { title: 'Wanted Book', authors: ['Ann Author'] }, saleInfo: { saleability: 'FOR_SALE', retailPrice: { amount: 4.99, currencyCode: 'USD' }, buyLink: 'https://play.google.com/x' } }] });
@@ -255,4 +256,15 @@ test('following an author adds their new books to New for You', async () => {
   const r = releases.find(x => x.title === 'Brand New Novel');
   assert.match(r.reason, /you follow/);
   assert.deepEqual((await call('PUT', '/api/me/follows', { name: 'followed writer', follow: false }, pal)).body.authors, []);
+});
+
+test('"Find missing authors" fixes books saved as Unknown Author', async () => {
+  const b = await addBook(pal, { workTitle: 'Rebecca', author: 'Unknown Author', workKey: '/works/OL45W', editions: [{ isbn: 'Pending Scan' }] });
+  const other = await addBook(pal, { workTitle: 'Zzz Nothing Known', author: 'Unknown Author', editions: [] });
+  const res = (await call('POST', '/api/books/fix-authors', undefined, pal)).body;
+  assert.deepEqual(res.fixed.map(f => [f.title, f.author]), [['Rebecca', 'Daphne du Maurier']]);
+  assert.equal(res.fixed[0].book.author, 'Daphne du Maurier');
+  assert.equal(res.stillUnknown, 1);
+  await call('DELETE', `/api/books/${b.id}`, undefined, pal);
+  await call('DELETE', `/api/books/${other.id}`, undefined, pal);
 });

@@ -70,6 +70,23 @@ export function createHardcover({ getToken, fetchImpl = globalThis.fetch }) {
 
   // Check a code works. The app only needs catalog access (Hardcover's "read:catalog" permission),
   // so the check is a tiny catalog lookup. The username is shown if the key is allowed to read it.
+  // Author names for an ISBN (used when the other catalogs don't know the author).
+  const authorsByIsbn = async (isbn13) => {
+    if (!cleanToken(getToken())) return [];
+    return cached(`authors:${isbn13}`, async () => {
+      const data = await query(`query ($isbn: String!) {
+        editions(where: { _or: [{ isbn_13: { _eq: $isbn } }, { isbn_10: { _eq: $isbn } }] }, limit: 1) {
+          book { title cached_contributors }
+        }
+      }`, { isbn: isbn13 });
+      const contributors = data?.editions?.[0]?.book?.cached_contributors || [];
+      return contributors
+        .filter(c => !c?.contribution || /author/i.test(c.contribution))
+        .map(c => c?.author?.name)
+        .filter(Boolean);
+    });
+  };
+
   const testToken = async (token) => {
     await query('query { books(limit: 1) { id } }', {}, token);
     try {
@@ -182,5 +199,5 @@ export function createHardcover({ getToken, fetchImpl = globalThis.fetch }) {
     };
   });
 
-  return { testToken, findSeries, seriesBooks, clearCache: () => cache.clear() };
+  return { testToken, findSeries, seriesBooks, authorsByIsbn, clearCache: () => cache.clear() };
 }

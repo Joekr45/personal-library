@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Settings, CheckCircle2, RefreshCw, ExternalLink, AlertTriangle, Download, KeyRound, Users, Database,
-  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info, Menu
+  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info, Menu, Search
 } from 'lucide-react';
 import { HIDEABLE } from './SidebarMenu.jsx';
 import { api } from './api.js';
@@ -83,6 +83,34 @@ function MenuSection({ prefs, onPrefsChange, isFamily }) {
       {error && <p className="text-red-700">{error}</p>}
     </Section>
   );
+}
+
+// ---------- Look again for books saved as "Unknown Author" ----------
+function FixAuthorsButton({ books, onBookSaved }) {
+  const unknown = (books || []).filter(b => !String(b.author || '').trim() || /^unknown( author)?$/i.test(String(b.author).trim()));
+  const [state, setState] = useState(null); // 'working' | { fixed, stillUnknown }
+  const run = async () => {
+    setState('working');
+    try {
+      const res = await api.fixAuthors();
+      res.fixed.forEach(f => onBookSaved?.(f.book));
+      setState(res);
+    } catch (err) {
+      setState({ error: err.message });
+    }
+  };
+  if (state === 'working') return <p className="text-slate-500 flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Looking up {unknown.length} author{unknown.length === 1 ? '' : 's'}…</p>;
+  if (state?.error) return <p className="text-red-700">{state.error}</p>;
+  if (state) {
+    return (
+      <p className="text-slate-600">
+        Found {state.fixed.length} author{state.fixed.length === 1 ? '' : 's'}{state.fixed.length ? `: ${state.fixed.map(f => `${f.title} → ${f.author}`).join('; ')}` : ''}.
+        {state.stillUnknown > 0 && ` ${state.stillUnknown} still unknown; open those books and type the author with Edit.`}
+      </p>
+    );
+  }
+  if (unknown.length === 0) return null;
+  return <button onClick={run} className={buttonClass}><Search className="w-3.5 h-3.5" /> Find missing authors ({unknown.length} book{unknown.length === 1 ? '' : 's'})</button>;
 }
 
 // ---------- Appearance ----------
@@ -539,6 +567,7 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
             <a href="/api/export/books.csv" className={buttonClass}><Download className="w-3.5 h-3.5" /> Download my books (spreadsheet)</a>
             <button onClick={onImport} className={buttonClass}><Upload className="w-3.5 h-3.5" /> Import from Goodreads</button>
             <FillInfoButton books={books} onBookSaved={onBookSaved} />
+            <FixAuthorsButton books={books} onBookSaved={onBookSaved} />
             {currentUser?.circle !== 'friend' && <SharingToggle onChange={onFamilyChange} />}
           </Section>
           <ActivitySection />
