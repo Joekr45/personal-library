@@ -128,6 +128,9 @@ export function AppleBookCard({ book, onClick, onAuthorClick, selecting = false,
         </button>
         {book.rating ? <StarRating value={book.rating} size="sm" /> : null}
         {currentLoan(book) && <p className="text-[10px] font-semibold text-sky-700 truncate">Lent to {currentLoan(book).to}</p>}
+        {book.owned !== false && (book.editions || []).length > 1 && (
+          <p className="text-[10px] font-semibold text-orange-700 truncate">{book.editions.length} copies</p>
+        )}
         {(book.collector?.signed || book.collector?.firstEdition) && (
           <p className="text-[10px] font-semibold text-amber-700 truncate">{[book.collector.signed && 'Signed', book.collector.firstEdition && '1st edition'].filter(Boolean).join(' · ')}</p>
         )}

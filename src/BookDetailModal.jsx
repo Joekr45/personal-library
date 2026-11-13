@@ -10,6 +10,7 @@ import QuotesPanel from './QuotesPanel.jsx';
 import CollectorPanel from './CollectorPanel.jsx';
 import FindItLinks from './FindItLinks.jsx';
 import BookInfoPanel from './BookInfoPanel.jsx';
+import CopiesPanel from './CopiesPanel.jsx';
 import ReviewPanel from './ReviewPanel.jsx';
 import MoodPanel from './MoodPanel.jsx';
 import SharePanel from './SharePanel.jsx';
@@ -18,7 +19,7 @@ import { AppleBookCover } from './appShared.jsx';
 
 // The book page: cover, status, and the tabs (My Reading, About, Review & Quotes, Shelves & More).
 // (Moved out of App.jsx; it receives the App state and actions it uses as props.)
-export default function BookDetailModal({ activeEditionIndex, bookTab, books, currentUser, deleteBook, family, isSavingDetailCover, myShelves, navigateToAuthor, onBookSaved, prefs, selectedBook, setBookTab, setEditingBook, setIsDetailCoverPickerOpen, setOwned, setSelectedBook, updateBook }) {
+export default function BookDetailModal({ setActiveEditionIndex, onAddCopy, onChangeCopyCover, activeEditionIndex, bookTab, books, currentUser, deleteBook, family, isSavingDetailCover, myShelves, navigateToAuthor, onBookSaved, prefs, selectedBook, setBookTab, setEditingBook, setIsDetailCoverPickerOpen, setOwned, setSelectedBook, updateBook }) {
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
       <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
@@ -170,6 +171,17 @@ export default function BookDetailModal({ activeEditionIndex, bookTab, books, cu
           {/* Kept mounted (just hidden) so book info is fetched the first time any book is opened. */}
           <div className={bookTab === 'about' ? 'space-y-6' : 'hidden'}>
             <BookInfoPanel book={selectedBook} onBookSaved={onBookSaved} />
+
+            {selectedBook.owned !== false && (
+              <CopiesPanel
+                book={selectedBook}
+                activeIndex={Math.min(activeEditionIndex, Math.max(0, (selectedBook.editions || []).length - 1))}
+                onSelect={setActiveEditionIndex}
+                onUpdate={(changes) => updateBook(selectedBook.id, changes)}
+                onAddCopy={() => onAddCopy(selectedBook)}
+                onChangeCover={onChangeCopyCover}
+              />
+            )}
 
             <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">

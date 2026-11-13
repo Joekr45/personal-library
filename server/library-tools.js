@@ -87,9 +87,12 @@ export function createLibraryTools({ db, requireUser, readJson, HttpError, valid
   const purge = (rows) => {
     for (const r of rows) {
       db.prepare('DELETE FROM trash WHERE id = ?').run(r.id);
-      const file = json(r.data, {}).coverFile;
-      // Only remove the picture if no other book (e.g. a restored copy) still uses it.
-      if (file && !db.prepare("SELECT 1 FROM books WHERE json_extract(data, '$.coverFile') = ?").get(file)) covers.remove(file);
+      // Remove its pictures (main cover and copies' covers) unless another book still uses them.
+      const d = json(r.data, {});
+      const files = [d.coverFile, ...(d.editions || []).map(e => e?.coverFile)].filter(Boolean);
+      for (const file of files) {
+        if (!db.prepare('SELECT 1 FROM books WHERE data LIKE ?').get(`%${file}%`)) covers.remove(file);
+      }
     }
   };
   const purgeOld = () => purge(db.prepare(`SELECT id, data FROM trash WHERE deleted_at < datetime('now', '-${TRASH_DAYS} days')`).all());

@@ -189,6 +189,31 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
 
   const cleanText = (value, max = 500) =>
     typeof value === 'string' ? value.trim().slice(0, max) : '';
+  // Saved cover files a book uses: its main cover and the covers of each of its copies.
+  const coverFromUrl = (url) => (String(url || '').match(/^\/api\/covers\/([0-9a-f-]{36}\.(?:jpg|png|webp|gif))$/) || [])[1] || null;
+  const coverFilesOf = (d) => new Set([d?.coverFile, coverFromUrl(d?.customCoverUrl), ...(Array.isArray(d?.editions) ? d.editions : []).flatMap(e => [e?.coverFile, coverFromUrl(e?.coverUrl)])].filter(Boolean));
+  // Only let a book point at saved covers it already had (never someone else's), and drop
+  // server-managed fields the browser shouldn't set.
+  const keepOwnCovers = (data, allowed) => {
+    if (coverFromUrl(data.customCoverUrl) && !allowed.has(coverFromUrl(data.customCoverUrl))) data.customCoverUrl = null;
+    data.editions = (data.editions || []).map(e => {
+      const copy = { ...e };
+      if (copy.coverFile && !allowed.has(copy.coverFile)) delete copy.coverFile;
+      if (coverFromUrl(copy.coverUrl) && !allowed.has(coverFromUrl(copy.coverUrl))) copy.coverUrl = null;
+      if (copy.coverUrl && !/^(https:\/\/|\/api\/covers\/)/.test(copy.coverUrl)) copy.coverUrl = null;
+      if (copy.note !== undefined) copy.note = cleanText(copy.note, 300) || null;
+      return copy;
+    });
+    return data;
+  };
+  // Delete a saved cover file unless another book (or something in the trash) still uses it.
+  const removeCoverIfUnused = (file) => {
+    if (!file) return;
+    const like = `%${file}%`;
+    if (db.prepare('SELECT 1 FROM books WHERE data LIKE ?').get(like) || db.prepare('SELECT 1 FROM trash WHERE data LIKE ?').get(like)) return;
+    covers.remove(file);
+  };
+
   // A list of short words/phrases: trimmed, no duplicates (ignoring capitals), limited in number.
   const cleanList = (value, max, count) => {
     const seen = new Set();
@@ -712,6 +737,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       const user = requireUser(req);
       const body = await readJson(req);
       delete body.coverFile; // managed by the server
+      keepOwnCovers(body, new Set());
       const data = validateBook(body);
       const id = crypto.randomUUID();
       db.prepare('INSERT INTO books (id, user_id, data) VALUES (?, ?, ?)').run(id, user.id, JSON.stringify(data));
@@ -781,6 +807,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
           try {
             const body = { ...raw };
             delete body.coverFile;
+            keepOwnCovers(body, new Set());
             const data = validateBook(body);
             const id = crypto.randomUUID();
             insert.run(id, user.id, JSON.stringify(data));
@@ -1158,14 +1185,15 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       // Merge the changes into the saved book, so the browser can send only what changed.
       const changes = await readJson(req);
       delete changes.coverFile; // managed by the server
-      const data = validateBook({ ...JSON.parse(existing.data), ...changes });
-      // If the book no longer uses its saved cover, delete the saved file.
-      if (data.coverFile && data.customCoverUrl !== `/api/covers/${data.coverFile}`) {
-        covers.remove(data.coverFile);
-        delete data.coverFile;
-      }
+      const before = JSON.parse(existing.data);
+      const data = keepOwnCovers(validateBook({ ...before, ...changes }), coverFilesOf(before));
+      // The main cover is a saved file only while the book still shows it.
+      if (data.coverFile && data.customCoverUrl !== `/api/covers/${data.coverFile}`) delete data.coverFile;
       db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
         .run(JSON.stringify(data), bookId, user.id);
+      // Pictures this book no longer uses (a replaced cover, a removed copy) are deleted.
+      const stillUsed = coverFilesOf(data);
+      for (const file of coverFilesOf(before)) if (!stillUsed.has(file)) removeCoverIfUnused(file);
       recordBookChange(user.id, JSON.parse(existing.data), data, bookId);
       return { status: 200, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(bookId)) } };
     },
@@ -1196,14 +1224,23 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       throw err;
     }
     const data = JSON.parse(existing.data);
-    const oldFile = data.coverFile;
-    data.coverFile = file;
-    data.customCoverUrl = `/api/covers/${file}`;
-    if (body.url) data.coverSourceUrl = cleanText(body.url, 2000);
-    else delete data.coverSourceUrl;
+    const before = coverFilesOf(data);
+    if (body.editionId) {
+      // The cover of one particular copy.
+      const edition = (data.editions || []).find(e => e.id === String(body.editionId));
+      if (!edition) { covers.remove(file); throw new HttpError(404, 'That copy was not found.'); }
+      edition.coverFile = file;
+      edition.coverUrl = `/api/covers/${file}`;
+    } else {
+      data.coverFile = file;
+      data.customCoverUrl = `/api/covers/${file}`;
+      if (body.url) data.coverSourceUrl = cleanText(body.url, 2000);
+      else delete data.coverSourceUrl;
+    }
     db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
       .run(JSON.stringify(data), bookId, user.id);
-    if (oldFile && oldFile !== file) covers.remove(oldFile);
+    const stillUsed = coverFilesOf(data);
+    for (const old of before) if (!stillUsed.has(old)) removeCoverIfUnused(old);
     return { status: 200, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(bookId)) } };
   };
 
@@ -1211,7 +1248,8 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   const serveCover = (req, res, file) => {
     const user = requireUser(req);
     // Your own covers, and covers from family members who share their library.
-    const owner = db.prepare("SELECT user_id FROM books WHERE json_extract(data, '$.coverFile') = ?").get(file);
+    const owner = db.prepare('SELECT user_id, data FROM books WHERE data LIKE ?').all(`%${file}%`)
+      .find(r => coverFilesOf(JSON.parse(r.data)).has(file));
     const allowed = owner && (owner.user_id === user.id || (user.circle !== 'friend' && sharesWithFamily(owner.user_id)));
     const full = allowed && covers.filePath(file);
     if (!full) throw new HttpError(404, 'Cover not found.');

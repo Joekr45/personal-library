@@ -94,6 +94,8 @@ export default function App() {
   // No signal: show the copy of the library kept on this device; changes wait in an outbox.
   const [offline, setOffline] = useState(false);
   const [seriesOffer, setSeriesOffer] = useState(null); // the next book in a series you just finished
+  const [coverPickerEdition, setCoverPickerEdition] = useState(null); // choosing the cover of one copy (its id)
+  const [addCopyTo, setAddCopyTo] = useState(null); // scanning another copy of this book
   const [pendingCount, setPendingCount] = useState(() => pendingChanges().length);
   const [isDuplicatesOpen, setIsDuplicatesOpen] = useState(false);
   // Selecting several books to change them at once
@@ -1190,7 +1192,19 @@ export default function App() {
 
       {/* MODAL: BOOK DETAIL & EDITION SWITCHER */}
       {selectedBook && (
-        <BookDetailModal activeEditionIndex={activeEditionIndex} bookTab={bookTab} books={books} currentUser={currentUser} deleteBook={deleteBook} family={family} isSavingDetailCover={isSavingDetailCover} myShelves={myShelves} navigateToAuthor={navigateToAuthor} onBookSaved={onBookSaved} prefs={prefs} selectedBook={selectedBook} setBookTab={setBookTab} setEditingBook={setEditingBook} setIsDetailCoverPickerOpen={setIsDetailCoverPickerOpen} setOwned={setOwned} setSelectedBook={setSelectedBook} updateBook={updateBook} />
+        <BookDetailModal setActiveEditionIndex={setActiveEditionIndex}
+          onAddCopy={(book) => { setAddCopyTo(book); setScannerInitialMode('camera'); setIsScanModalOpen(true); }}
+          onChangeCopyCover={async (editionId) => {
+            // Older copies may not have an id yet: give them one first.
+            let id = editionId;
+            if (!id) {
+              const editions = (selectedBook.editions || []).map((e, i) => (e.id ? e : { ...e, id: `ed-${Date.now()}-${i}` }));
+              const saved = await updateBook(selectedBook.id, { editions });
+              id = saved?.editions?.[Math.min(activeEditionIndex, editions.length - 1)]?.id;
+            }
+            if (id) { setCoverPickerEdition(id); setIsDetailCoverPickerOpen(true); }
+          }}
+          activeEditionIndex={activeEditionIndex} bookTab={bookTab} books={books} currentUser={currentUser} deleteBook={deleteBook} family={family} isSavingDetailCover={isSavingDetailCover} myShelves={myShelves} navigateToAuthor={navigateToAuthor} onBookSaved={onBookSaved} prefs={prefs} selectedBook={selectedBook} setBookTab={setBookTab} setEditingBook={setEditingBook} setIsDetailCoverPickerOpen={setIsDetailCoverPickerOpen} setOwned={setOwned} setSelectedBook={setSelectedBook} updateBook={updateBook} />
       )}
 
       {/* MODAL: MANUAL ADD FORM */}
@@ -1308,14 +1322,16 @@ export default function App() {
         <CoverPicker
           title={selectedBook.workTitle}
           author={(selectedBook.author || '').split(',')[0]}
-          isbn={toIsbn13(selectedBook.editions?.[0]?.isbn) || ''}
+          isbn={toIsbn13((coverPickerEdition && selectedBook.editions?.find(e => e.id === coverPickerEdition)?.isbn) || selectedBook.editions?.[0]?.isbn) || ''}
           workKey={selectedBook.workKey || ''}
-          language={selectedBook.editions?.[0]?.language || 'English'}
-          onCancel={() => setIsDetailCoverPickerOpen(false)}
+          language={(coverPickerEdition && selectedBook.editions?.find(e => e.id === coverPickerEdition)?.language) || selectedBook.editions?.[0]?.language || 'English'}
+          onCancel={() => { setIsDetailCoverPickerOpen(false); setCoverPickerEdition(null); }}
           onChoose={async (choice) => {
+            const editionId = coverPickerEdition;
             setIsDetailCoverPickerOpen(false);
+            setCoverPickerEdition(null);
             setIsSavingDetailCover(true);
-            await saveCoverFor(selectedBook.id, choice.imageData ? { imageData: choice.imageData } : { url: choice.url });
+            await saveCoverFor(selectedBook.id, { ...(choice.imageData ? { imageData: choice.imageData } : { url: choice.url }), ...(editionId ? { editionId } : {}) });
             setIsSavingDetailCover(false);
           }}
         />
@@ -1365,8 +1381,16 @@ export default function App() {
         <ScannerModal
           books={books}
           coverThemes={COVER_THEMES}
-          onClose={() => { setIsScanModalOpen(false); setScannerInitialBook(null); setScannerInitialMode(null); }}
+          onClose={() => { setIsScanModalOpen(false); setScannerInitialBook(null); setScannerInitialMode(null); setAddCopyTo(null); }}
           onAdd={addBook}
+          addCopyTo={addCopyTo}
+          onAddCopy={async (book, edition, coverChoice) => {
+            // Another copy of a book you have: added to that book's list of copies, with its own cover.
+            const current = booksRef.current.find(b => b.id === book.id) || book;
+            const saved = await updateBook(book.id, { editions: [...(current.editions || []), edition] });
+            if (saved && coverChoice) await saveCoverFor(book.id, { ...(coverChoice.imageData ? { imageData: coverChoice.imageData } : { url: coverChoice.url }), editionId: edition.id }, { quiet: true });
+            return saved;
+          }}
           onSaveCover={saveCoverFor}
           initialBook={scannerInitialBook}
           initialMode={scannerInitialMode}
