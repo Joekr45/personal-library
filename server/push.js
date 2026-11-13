@@ -71,7 +71,7 @@ export function createPush({ db, getSetting, setSetting, fetchImpl = globalThis.
   const devices = (userId) => db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').get(userId).n;
 
   // What each person wants to hear about (all on by default except family activity).
-  const DEFAULTS = { recommendations: true, clubs: true, overdue: true, newReleases: true, activity: false };
+  const DEFAULTS = { recommendations: true, clubs: true, borrow: true, overdue: true, newReleases: true, activity: false };
   const prefs = (userId) => ({ ...DEFAULTS, ...JSON.parse(getSetting(`notify:${userId}`) || '{}') });
   const setPrefs = (userId, changes) => {
     const next = prefs(userId);

@@ -11,6 +11,7 @@ import { createHardcover, HardcoverError, cleanToken } from './hardcover.js';
 import { createBackups } from './backups.js';
 import { createSocial } from './social.js';
 import { createLibraryTools } from './library-tools.js';
+import { createBorrow } from './borrow.js';
 import { createPush } from './push.js';
 import { classifyCode } from '../shared/isbn.js';
 import {
@@ -248,12 +249,12 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         .map(l => ({ to: cleanText(l?.to, 100), lentOn: date(l?.lentOn), dueOn: date(l?.dueOn), returnedOn: date(l?.returnedOn) }))
         .filter(l => l.to);
     }
-    // Saved quotes: [{ text, page, addedOn }]
+    // Saved quotes: [{ text, page, addedOn, note }]
     if (data.quotes !== undefined) {
       data.quotes = (Array.isArray(data.quotes) ? data.quotes : []).slice(-500)
         .map(q => {
           const page = Math.round(Number(q?.page));
-          return { text: cleanText(q?.text, 3000), page: q?.page !== null && q?.page !== '' && page > 0 && page <= 100000 ? page : null, addedOn: date(q?.addedOn) };
+          return { text: cleanText(q?.text, 3000), page: q?.page !== null && q?.page !== '' && page > 0 && page <= 100000 ? page : null, addedOn: date(q?.addedOn), ...(cleanText(q?.note, 2000) ? { note: cleanText(q?.note, 2000) } : {}) };
         })
         .filter(q => q.text);
     }
@@ -1149,6 +1150,9 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   // Trash bin, merging duplicates, changing many books at once (server/library-tools.js)
   const tools = createLibraryTools({ db, requireUser, readJson, HttpError, validateBook, bookFromRow, covers, cleanText });
   Object.assign(routes, tools.routes);
+  // Asking to borrow each other's books (server/borrow.js)
+  const borrow = createBorrow({ db, requireUser, readJson, HttpError, cleanText, getSetting, setSetting, validateBook, notify: push.notifySoon });
+  Object.assign(routes, borrow.routes);
   if (startBackups) setInterval(() => { try { tools.purgeOld(); } catch (err) { console.error('trash:', err.message); } }, 24 * 60 * 60 * 1000).unref?.();
   const recordBookChange = (...args) => { try { social.recordBookChange(...args); } catch (err) { console.error('activity:', err); } };
   if (startBackups) {
@@ -1323,7 +1327,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         }
         const adminUser = pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})(\/password)?$/);
         if (!route) {
-          const socialResult = await social.handle(req, pathname);
+          const socialResult = (await social.handle(req, pathname)) || (await borrow.handle(req, pathname));
           if (socialResult) return sendJson(res, socialResult.status, socialResult.body);
           const infoRoute = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})\/info$/);
           if (infoRoute && req.method === 'POST') {

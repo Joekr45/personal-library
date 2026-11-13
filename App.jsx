@@ -20,7 +20,7 @@ import {
   BadgeCheck,
   ShoppingBag,
   BellRing
-} from 'lucide-react';
+, Dices } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
 import ScannerModal from './src/ScannerModal.jsx';
@@ -53,6 +53,10 @@ import DuplicatesModal from './src/DuplicatesModal.jsx';
 import BatchBar from './src/BatchBar.jsx';
 import BottomBar from './src/BottomBar.jsx';
 import ShelfMapPage from './src/ShelfMapPage.jsx';
+import BorrowPage from './src/BorrowPage.jsx';
+import NextReadPicker from './src/NextReadPicker.jsx';
+import LabelsModal from './src/LabelsModal.jsx';
+import { statusChanges } from './src/reading.js';
 import { allPlaces } from './src/places.js';
 import { byTitle, PAGE_SECTIONS, COVER_THEMES, AppleBookCover, AppleBookCard } from './src/appShared.jsx';
 import BookDetailModal from './src/BookDetailModal.jsx';
@@ -88,6 +92,10 @@ export default function App() {
   const [newReleases, setNewReleases] = useState(null); // { releases, authorsChecked } or { error }
   const [prefs, setPrefs] = useState({}); // e.g. { libbyLibrary: 'nypl' }
   const [inboxCount, setInboxCount] = useState(0); // books recommended to you, not answered yet
+  const [borrowWaiting, setBorrowWaiting] = useState(0); // people asking to borrow your books
+  const [pickerOpen, setPickerOpen] = useState(false); // "Pick my next read"
+  const [labelBooks, setLabelBooks] = useState(null); // books to print labels for
+  const linkedBook = useRef(new URLSearchParams(window.location.search).get('book')); // opened from a label's QR code
   const [navTick, setNavTick] = useState(0); // changes on every menu tap, so pages reload fresh
   const [bookTab, setBookTab] = useState('reading'); // which tab of the book page is showing (kept between books)
   const [isTrashOpen, setIsTrashOpen] = useState(false);
@@ -192,6 +200,7 @@ export default function App() {
     api.getSettings().then(setSettings).catch(() => setSettings(null));
     api.getPrefs().then(setPrefs).catch(() => setPrefs({}));
     api.recommendations().then(r => setInboxCount(r.inbox.length)).catch(() => setInboxCount(0));
+    api.borrowRequests().then(r => setBorrowWaiting(r.waiting)).catch(() => setBorrowWaiting(0));
     loadFamily();
     api.listBooks()
       .then((list) => {
@@ -213,6 +222,14 @@ export default function App() {
   }, [currentUser]);
 
   // Keep a copy of the library on this device for when there's no signal.
+  // Scanned a book label's QR code: open that book once the library is loaded.
+  useEffect(() => {
+    if (!currentUser || !isLibraryLoaded || !linkedBook.current) return;
+    const book = books.find(b => b.id === linkedBook.current);
+    linkedBook.current = null;
+    if (window.location.search.includes('book=')) window.history.replaceState(null, '', window.location.pathname);
+    if (book) { setSelectedBook(book); setActiveEditionIndex(0); }
+  }, [currentUser, isLibraryLoaded, books]);
   useEffect(() => {
     if (currentUser && isLibraryLoaded) saveSnapshot(currentUser, books);
   }, [books, currentUser, isLibraryLoaded]);
@@ -772,7 +789,7 @@ export default function App() {
             active={activeSection}
             onSelect={(key) => { setActiveSection(key); setCurrentPage(1); stopSelecting(); if (key === 'family') loadFamily(); }}
             counts={{ ...counts, quotes: quoteCount }}
-            alerts={{ overdue: overdue.length, inbox: inboxCount, newReleases: newReleases?.releases?.length || 0 }}
+            alerts={{ overdue: overdue.length, inbox: inboxCount, borrow: borrowWaiting, newReleases: newReleases?.releases?.length || 0 }}
             shelves={myShelves}
             activeShelf={activeShelf}
             isFamily={isFamily}
@@ -955,6 +972,8 @@ export default function App() {
               onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }}
               onGo={(key) => { setActiveSection(key); setCurrentPage(1); }}
               onScan={() => { setScannerInitialMode(null); setIsScanModalOpen(true); }}
+              onPickNext={() => setPickerOpen(true)}
+              borrowWaiting={borrowWaiting}
               BookCover={(book) => <AppleBookCover book={book} />}
             />
           )}
@@ -975,9 +994,27 @@ export default function App() {
           {activeSection === 'lists' && <ListsPage key={navTick} myBooks={books} onAddToWishlist={addRefToWishlist} />}
           {activeSection === 'readinglog' && <ReadingLogPage key={navTick} isFamily={isFamily} />}
           {activeSection === 'gifts' && isFamily && <GiftsPage key={navTick} />}
+          {pickerOpen && (
+            <NextReadPicker
+              books={books}
+              onClose={() => setPickerOpen(false)}
+              onStart={(b) => { updateBook(b.id, statusChanges(b, 'Reading')); setPickerOpen(false); }}
+              onOpenBook={(b) => { setPickerOpen(false); setSelectedBook(b); setActiveEditionIndex(0); }}
+              renderCover={(b) => <AppleBookCover book={b} />}
+            />
+          )}
+          {activeSection === 'borrow' && (
+            <BorrowPage
+              key={navTick}
+              myBooks={books}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onWaitingChange={setBorrowWaiting}
+              onLoansChanged={() => api.listBooks().then(setBooks).catch(() => {})}
+            />
+          )}
 
           {activeSection === 'quotes' && (
-            <QuotesPage books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} />
+            <QuotesPage books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} onUpdateBook={updateBook} />
           )}
 
           {['all', 'lent'].includes(activeSection) && overdue.length > 0 && (
@@ -1010,6 +1047,11 @@ export default function App() {
                     {activeShelf && `${activeShelf} (${filteredBooks.length})`}
                     {activeSection === 'dnf' && `Did Not Finish (${filteredBooks.length})`}
                   </h2>
+                  {activeSection === 'unread' && counts.unread > 0 && (
+                    <button onClick={() => setPickerOpen(true)} className="mt-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-orange-50 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                      <Dices className="w-3.5 h-3.5 text-orange-500" /> Pick my next read
+                    </button>
+                  )}
                   {activeShelf && (
                     <div className="mt-1.5 flex gap-2">
                       <button onClick={askRenameShelf} className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5">
@@ -1267,7 +1309,11 @@ export default function App() {
           onClear={() => setSelectedIds(new Set())}
           onDone={stopSelecting}
           onApply={applyBatch}
+          onPrintLabels={() => setLabelBooks(books.filter(b => selectedIds.has(b.id)))}
         />
+      )}
+      {labelBooks && (
+        <LabelsModal books={labelBooks} ownerName={currentUser?.displayName} onClose={() => setLabelBooks(null)} />
       )}
 
       {seriesOffer && (

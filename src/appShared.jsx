@@ -10,7 +10,7 @@ export const titleCollator = new Intl.Collator(undefined, { sensitivity: 'base',
 export const byTitle = (a, b) => titleCollator.compare(sortKey(a.workTitle), sortKey(b.workTitle)) || titleCollator.compare(a.author || '', b.author || '');
 
 // Menu pages that aren't a list of books (no sorting, filters or selecting there).
-export const PAGE_SECTIONS = ['home', 'authors', 'series', 'year', 'family', 'new', 'challenges', 'quotes', 'activity', 'discover', 'clubs', 'lists', 'readinglog', 'gifts', 'places'];
+export const PAGE_SECTIONS = ['home', 'authors', 'series', 'year', 'family', 'new', 'challenges', 'quotes', 'activity', 'discover', 'clubs', 'lists', 'readinglog', 'gifts', 'places', 'borrow'];
 
 export const COVER_THEMES = [
   { bg: 'from-amber-900 via-stone-900 to-black', accent: 'border-amber-400/40 text-amber-200', tag: 'bg-amber-500/20 text-amber-300' },

@@ -118,6 +118,7 @@ function FixAuthorsButton({ books, onBookSaved }) {
 const NOTIFY_KINDS = [
   ['recommendations', 'Someone recommends me a book'],
   ['clubs', 'New posts in my book clubs'],
+  ['borrow', 'Someone asks to borrow my book, or answers my request'],
   ['overdue', 'A book I lent is overdue'],
   ['newReleases', 'New books from my authors'],
   ['activity', 'Family finish or review a book']
@@ -642,6 +643,28 @@ function SharingToggle({ onChange }) {
   );
 }
 
+// "Let friends see my library": anyone with an account can browse it and ask to borrow.
+function FriendsSharingToggle() {
+  const [on, setOn] = useState(null);
+  useEffect(() => { api.libraries().then(d => setOn(d.sharingWithFriends)).catch(() => setOn(false)); }, []);
+  if (on === null) return null;
+  return (
+    <label className="flex items-start gap-2 p-3 bg-slate-50 rounded-xl cursor-pointer">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={async (e) => {
+          const next = e.target.checked;
+          setOn(next);
+          try { setOn(await api.shareWithFriends(next)); } catch { setOn(!next); }
+        }}
+        className="mt-0.5 accent-orange-500"
+      />
+      <span><b>Let friends see my library.</b> Everyone with an account (friends too) can see the books on your shelves and ask to borrow them. You always decide yes or no.</span>
+    </label>
+  );
+}
+
 export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange, onImport, prefs, onPrefsChange, books, onBookSaved, onOpenTrash, onOpenDuplicates }) {
   const duplicateCount = findDuplicates(books || [], (() => { try { return JSON.parse(localStorage.getItem('pl_not_duplicates') || '[]'); } catch { return []; } })()).length;
   return (
@@ -667,6 +690,7 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
             <button onClick={onOpenDuplicates} className={buttonClass}><Copy className="w-3.5 h-3.5" /> Find duplicates{duplicateCount ? ` (${duplicateCount})` : ''}</button>
             <button onClick={onOpenTrash} className={buttonClass}><Trash2 className="w-3.5 h-3.5" /> Recently deleted</button>
             {currentUser?.circle !== 'friend' && <SharingToggle onChange={onFamilyChange} />}
+            <FriendsSharingToggle />
           </Section>
           <NotificationsSection />
           <ActivitySection />

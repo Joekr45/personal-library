@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Home, Library, BookOpen, BookMarked, BookmarkCheck, CircleSlash, Heart, HandHelping, Tags, Trophy, Timer, Quote, Flag,
-  Activity, MessagesSquare, ListOrdered, Users, Gift, Sparkles, Compass, Layers, ChevronDown, ChevronRight, MapPin
+  Activity, MessagesSquare, ListOrdered, Users, Gift, Sparkles, Compass, Layers, ChevronDown, ChevronRight, MapPin, HandHeart
 } from 'lucide-react';
 
 // Everything in the menu, in order, grouped into sections that open and close.
@@ -27,6 +27,7 @@ export const MENU = [
   ] },
   { group: 'people', title: 'People', items: [
     { key: 'activity', label: 'Activity', icon: Activity, alert: 'inbox' },
+    { key: 'borrow', label: 'Borrow', icon: HandHeart, alert: 'borrow' },
     { key: 'clubs', label: 'Book Clubs', icon: MessagesSquare },
     { key: 'lists', label: 'Lists', icon: ListOrdered },
     { key: 'family', label: 'Family Shelves', icon: Users, familyOnly: true },

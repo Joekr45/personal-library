@@ -166,3 +166,10 @@ api.pushUnsubscribe = (endpoint) => request('POST', '/api/push/unsubscribe', { e
 api.pushPrefs = (changes) => request('PUT', '/api/push/prefs', changes).then(d => d.prefs);
 api.pushTest = () => request('POST', '/api/push/test');
 api.seriesNext = (bookId) => request('GET', `/api/series/next?bookId=${encodeURIComponent(bookId)}`);
+
+// Borrowing from each other
+api.libraries = () => request('GET', '/api/libraries');
+api.shareWithFriends = (on) => request('PUT', '/api/me/share-with-friends', { on }).then(d => d.on);
+api.borrowRequests = () => request('GET', '/api/borrow');
+api.askToBorrow = (ownerId, bookId, message) => request('POST', '/api/borrow', { ownerId, bookId, message });
+api.answerBorrow = (id, action, extra = {}) => request('POST', `/api/borrow/${id}/${action}`, extra);
