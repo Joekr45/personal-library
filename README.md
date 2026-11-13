@@ -52,6 +52,14 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - Audiobooks get **My listening** instead of pages: time listened out of the total length, +15/+30/+60 min buttons, time left, and "I finished it!".
 - **My Year → Reading stats** shows how you read (print/ebook/audiobook) and hours of audiobooks. Filters have **Read as**.
 
+## Several copies of the same book
+
+For collectors who buy a book again for each new cover:
+- When you scan a **different edition** of a book you already own, the app asks **"Is this another copy, like a new cover?"** → **Add as another copy** (or add it as a separate book if you prefer).
+- Scanning the **exact same edition** again offers **"I have another copy of this exact edition"**.
+- On the book's **About** tab, **My copies** shows every copy's cover side by side. For each copy you can choose its own cover, add a note ("2023 movie cover", "signed"), **show its cover in your library**, or remove it. **Add another copy** opens the scanner just for that book.
+- Cards show "3 copies". Copies stay one book, so your reading dates, rating and notes are shared.
+
 ## Series and shelves
 
 - **Next in the series**: finish a book that's part of a series and, if you don't have the next one, the app offers it (cover, number, year) with **Add to wishlist**. Uses Hardcover (Settings).

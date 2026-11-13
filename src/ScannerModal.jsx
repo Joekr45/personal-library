@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ScanBarcode, X, RefreshCw, AlertTriangle, CheckCircle2, Search, Keyboard, Heart, Library, BookOpen, Info, ImagePlus, ArrowLeft,
-  BadgeCheck, Users, Layers, Trash2
+  BadgeCheck, Users, Layers, Trash2, Copy
 } from 'lucide-react';
 import { api } from './api.js';
 import CoverPicker from './CoverPicker.jsx';
@@ -66,7 +66,7 @@ const TABS = [
 // The "Add a book" window: scan a barcode, type an ISBN, or search by title/author.
 // initialBook: open straight to the confirmation card for this book (e.g. from the author page);
 // the window then closes after the book is added.
-export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onManualAdd, coverThemes, initialBook = null, family = null, initialMode = null }) {
+export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onManualAdd, coverThemes, initialBook = null, family = null, initialMode = null, addCopyTo = null, onAddCopy }) {
   const [mode, setMode] = useState(initialBook ? 'search' : initialMode || 'camera');
   // "Scan" and "Do I own it?" both use the camera.
   const usesCamera = mode === 'camera' || mode === 'check' || mode === 'shelf';
@@ -283,9 +283,9 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
       setNotice({ type: 'upc', code: code.code });
       return;
     }
-    const existing = booksRef.current.find(b => (b.editions || []).some(e => toIsbn13(e.isbn) === code.isbn13));
+    const existing = !addCopyTo && booksRef.current.find(b => (b.editions || []).some(e => toIsbn13(e.isbn) === code.isbn13));
     if (existing) {
-      setNotice({ type: 'duplicate', book: existing });
+      setNotice({ type: 'duplicate', book: existing, isbn13: code.isbn13 });
       return;
     }
     setIsLookingUp(true);
@@ -331,6 +331,42 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
       }));
     }
     if (option?.language && result && (result.fromSearch || !result.isbn13) && LANGUAGES.includes(option.language)) setCopyLanguage(option.language);
+  };
+
+  // The copy in your hands, as an entry in a book's list of copies.
+  const editionFromResult = () => ({
+    id: `ed-${Date.now()}`,
+    title: result.title,
+    language: copyLanguage,
+    format: result.format || 'Physical Print',
+    isbn: result.isbn13 || 'Pending Scan',
+    isbn10: result.isbn10 || null,
+    published: result.publishedDate || 'Unknown',
+    publisher: result.publisher || 'Unknown',
+    pageCount: result.pageCount || null
+  });
+  // A book you already own that this scan is another copy of (same book, any edition).
+  const ownedMatch = !addCopyTo && result
+    ? booksRef.current.find(b => b.owned !== false && sameBook(b, { title: result.title, authors: result.authors, workKey: result.workKey, isbns: result.isbn13 ? [result.isbn13] : [] }))
+    : null;
+  const addAsCopy = async (book) => {
+    const saved = await onAddCopy(book, editionFromResult(), coverChoice);
+    if (!saved) return;
+    if (addCopyTo) { close(); return; }
+    setLastAdded({ title: book.workTitle, owned: true, copy: true, copies: saved.editions?.length });
+    setIsbnInput('');
+    resetResult();
+    setCheckResult(null);
+    if (usesCamera) startScanLoop();
+  };
+  // Scanned the exact same edition you already have: add one more identical copy.
+  const addSameEditionCopy = async (book, isbn13) => {
+    const like = (book.editions || []).find(e => toIsbn13(e.isbn) === isbn13) || {};
+    const saved = await onAddCopy(book, { ...like, id: `ed-${Date.now()}`, coverFile: undefined, coverUrl: null, note: null }, null);
+    if (!saved) return;
+    setNotice(null);
+    setLastAdded({ title: book.workTitle, owned: true, copy: true, copies: saved.editions?.length });
+    if (usesCamera) startScanLoop();
   };
 
   const addResult = async (owned) => {
@@ -485,7 +521,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2">
             <ScanBarcode className="w-4 h-4 text-orange-500" />
-            <h3 className="text-sm font-bold text-slate-900">Add a Book</h3>
+            <h3 className="text-sm font-bold text-slate-900 truncate">{addCopyTo ? `Add another copy of “${addCopyTo.workTitle}”` : 'Add a Book'}</h3>
           </div>
           <button onClick={close} aria-label="Close" className="w-8 h-8 rounded-full bg-slate-200/60 hover:bg-slate-200 flex items-center justify-center text-slate-600">
             <X className="w-4 h-4" />
@@ -512,7 +548,9 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
               <span>
-                Added <b>{lastAdded.title}</b> to your {lastAdded.owned ? 'shelf' : 'wishlist'}.
+                {lastAdded.copy
+                  ? <>Added another copy of <b>{lastAdded.title}</b>{lastAdded.copies ? ` (you have ${lastAdded.copies} now)` : ''}.</>
+                  : <>Added <b>{lastAdded.title}</b> to your {lastAdded.owned ? 'shelf' : 'wishlist'}.</>}
                 {mode === 'camera' && ' Ready for the next one.'}
               </span>
             </div>
@@ -654,6 +692,11 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
                   ? <>"<b>{notice.book.workTitle}</b>" is already on your wishlist.</>
                   : <>You already own "<b>{notice.book.workTitle}</b>"{notice.book.shelfLocation ? <> (shelf: {notice.book.shelfLocation})</> : null}.</>}
               </p>
+              {notice.book.owned !== false && notice.isbn13 && (
+                <button onClick={() => addSameEditionCopy(notice.book, notice.isbn13)} className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 font-semibold flex items-center gap-1">
+                  <Copy className="w-3.5 h-3.5" /> I have another copy of this exact edition
+                </button>
+              )}
               {usesCamera && <button onClick={scanAgain} className="font-semibold underline">Scan another book</button>}
             </div>
           )}
@@ -780,14 +823,34 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => addResult(true)} className={`${btn} bg-emerald-600 hover:bg-emerald-700 text-white`}>
-                  <Library className="w-3.5 h-3.5" /> Add to My Shelf
+              {addCopyTo ? (
+                <button onClick={() => addAsCopy(addCopyTo)} className={`${btn} w-full bg-emerald-600 hover:bg-emerald-700 text-white`}>
+                  <Copy className="w-3.5 h-3.5" /> Add as another copy of “{addCopyTo.workTitle}”
                 </button>
-                <button onClick={() => addResult(false)} className={`${btn} bg-white border border-rose-200 text-rose-600 hover:bg-rose-50`}>
-                  <Heart className="w-3.5 h-3.5" /> Add to Wishlist
-                </button>
-              </div>
+              ) : null}
+              {addCopyTo && !sameBook(addCopyTo, { title: result.title, authors: result.authors, workKey: result.workKey }) && (
+                <p className="text-[11px] text-amber-700">Heads up: this looks like a different book (“{result.title}”). Scan again if that's not right.</p>
+              )}
+              {addCopyTo ? null : (
+                <>
+                  {ownedMatch && (
+                    <div className="p-2.5 bg-white border border-emerald-200 rounded-xl text-xs text-slate-700 space-y-2">
+                      <p>You already have <b>{ownedMatch.workTitle}</b>{(ownedMatch.editions || []).length > 1 ? ` (${ownedMatch.editions.length} copies)` : ''}. Is this another copy, like a new cover?</p>
+                      <button onClick={() => addAsCopy(ownedMatch)} className={`${btn} w-full bg-emerald-600 hover:bg-emerald-700 text-white`}>
+                        <Copy className="w-3.5 h-3.5" /> Add as another copy
+                      </button>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => addResult(true)} className={`${btn} ${ownedMatch ? 'bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
+                      <Library className="w-3.5 h-3.5" /> {ownedMatch ? 'Add as a separate book' : 'Add to My Shelf'}
+                    </button>
+                    <button onClick={() => addResult(false)} className={`${btn} bg-white border border-rose-200 text-rose-600 hover:bg-rose-50`}>
+                      <Heart className="w-3.5 h-3.5" /> Add to Wishlist
+                    </button>
+                  </div>
+                </>
+              )}
               {usesCamera && (
                 <button onClick={scanAgain} className={`${btn} w-full text-slate-600 hover:bg-emerald-100`}>
                   Not this book? Scan again
