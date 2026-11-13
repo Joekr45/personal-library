@@ -12,6 +12,7 @@ export default function DuplicatesModal({ books, onClose, onMerged, renderCover 
   const [dismissed, setDismissed] = useState(readDismissed);
   const groups = useMemo(() => findDuplicates(books, dismissed), [books, dismissed]);
   const [keepChoice, setKeepChoice] = useState({});
+  const [allCopies, setAllCopies] = useState({}); // group key → keep every copy
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState('');
 
@@ -24,7 +25,7 @@ export default function DuplicatesModal({ books, onClose, onMerged, renderCover 
     const keepId = keepChoice[group.key] || [...group.books].sort((a, b) => richness(b) - richness(a))[0].id;
     setBusy(group.key); setError('');
     try {
-      const res = await api.mergeBooks(keepId, group.books.filter(b => b.id !== keepId).map(b => b.id));
+      const res = await api.mergeBooks(keepId, group.books.filter(b => b.id !== keepId).map(b => b.id), Boolean(allCopies[group.key]));
       onMerged(res.book, res.trashed);
     } catch (err) { setError(err.message); } finally { setBusy(null); }
   };
@@ -55,15 +56,20 @@ export default function DuplicatesModal({ books, onClose, onMerged, renderCover 
                         <p className="text-slate-500 truncate">{b.author}</p>
                         <p className="text-slate-400">{b.owned === false ? 'Wishlist' : (b.readingStatus === 'DNF' ? 'Did not finish' : b.readingStatus || 'Unread')}{b.rating ? ` · ${b.rating}★` : ''}</p>
                         <p className="text-slate-400 truncate">{(b.editions || []).map(e => e.isbn).filter(i => i && i !== 'Pending Scan').join(', ') || 'no ISBN'}</p>
+                        {(b.editions || []).length > 1 && <p className="text-orange-700 font-semibold">{b.editions.length} copies</p>}
                         {keepId === b.id && <p className="text-orange-600 font-semibold flex items-center gap-0.5"><Check className="w-3 h-3" /> Keep this one</p>}
                       </div>
                     </button>
                   ))}
                 </div>
+                <label className="flex items-start gap-2 text-[11px] text-slate-600">
+                  <input type="checkbox" checked={Boolean(allCopies[g.key])} onChange={(e) => setAllCopies(prev => ({ ...prev, [g.key]: e.target.checked }))} className="mt-0.5 accent-orange-500" />
+                  <span><b>These are separate copies I own</b> (e.g. the same book bought twice): keep every copy. Leave unticked if the same copy was just entered twice.</span>
+                </label>
                 <div className="flex justify-end gap-2">
                   <button onClick={() => dismiss(g.key)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-600">Not duplicates</button>
                   <button onClick={() => merge(g)} disabled={busy === g.key} className="px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1">
-                    <Merge className="w-3.5 h-3.5" /> {busy === g.key ? 'Merging…' : `Merge ${g.books.length} copies`}
+                    <Merge className="w-3.5 h-3.5" /> {busy === g.key ? 'Merging…' : allCopies[g.key] ? 'Combine, keeping every copy' : 'Merge'}
                   </button>
                 </div>
               </div>

@@ -126,3 +126,13 @@ test('restoring a backup brings the library back to that day, after a safety cop
   assert.ok(undone.includes('After Backup'));
   assert.ok(!undone.includes('Before Backup'));
 });
+
+test('merging never drops copies already in a book, and can keep identical copies from other books', () => {
+  const keep = { workTitle: 'P', editions: [{ id: 'a', isbn: '9780141439518' }, { id: 'b', isbn: '9780141439518', note: 'second identical copy' }] };
+  const other = { workTitle: 'P', editions: [{ id: 'a', isbn: '9780141439518' }, { id: 'c', isbn: '9780141199078' }] };
+  const usual = mergeBooks(keep, [other]);
+  assert.deepEqual(usual.editions.map(e => e.id), ['a', 'b', 'c']);
+  const all = mergeBooks(keep, [other], { keepAllCopies: true });
+  assert.equal(all.editions.length, 4);
+  assert.equal(new Set(all.editions.map(e => e.id)).size, 4, 'clashing ids are made unique');
+});

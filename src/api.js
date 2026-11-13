@@ -155,7 +155,7 @@ api.fixAuthors = () => request('POST', '/api/books/fix-authors');
 api.trash = () => request('GET', '/api/trash');
 api.restoreFromTrash = (ids) => request('POST', '/api/trash/restore', { ids }).then(d => d.books);
 api.emptyTrash = (body) => request('POST', '/api/trash/empty', body);
-api.mergeBooks = (keepId, mergeIds) => request('POST', '/api/books/merge', { keepId, mergeIds });
+api.mergeBooks = (keepId, mergeIds, keepAllCopies = false) => request('POST', '/api/books/merge', { keepId, mergeIds, keepAllCopies });
 api.batchBooks = (body) => request('POST', '/api/books/batch', body);
 api.restoreBackup = (file) => request('POST', '/api/admin/backups/restore', { file });
 

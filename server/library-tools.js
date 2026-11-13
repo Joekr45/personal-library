@@ -15,7 +15,10 @@ const earliest = (...dates) => dates.filter(Boolean).sort()[0] || null;
 const latest = (...dates) => dates.filter(Boolean).sort().pop() || null;
 const STATUS_RANK = { Completed: 4, DNF: 3, Reading: 2, Unread: 1 };
 
-export function mergeBooks(keep, others) {
+// keepAllCopies: the books are separate copies you really own (e.g. the same edition bought twice),
+// so every copy is kept. Otherwise a copy with the same ISBN in another book is taken to be the
+// same copy entered twice. Copies already inside the kept book are never removed.
+export function mergeBooks(keep, others, { keepAllCopies = false } = {}) {
   const all = [keep, ...others];
   const merged = { ...keep };
   // Fill anything the kept copy is missing from the others.
@@ -37,7 +40,18 @@ export function mergeBooks(keep, others) {
   merged.review = keep.review?.text ? keep.review : others.find(o => o.review?.text)?.review || null;
   merged.collector = keep.collector || others.find(o => o.collector)?.collector;
   const list = (field) => all.flatMap(b => (Array.isArray(b[field]) ? b[field] : []));
-  merged.editions = uniqueBy(list('editions'), e => String(e.isbn || '').replace(/[^0-9X]/gi, '') || `${e.title}|${e.language}|${e.format}`);
+  const isbnKey = (e) => String(e?.isbn || '').replace(/[^0-9X]/gi, '') || `${e?.title}|${e?.language}|${e?.format}`;
+  const copies = [...(keep.editions || [])];
+  const ids = new Set(copies.map(e => e.id).filter(Boolean));
+  for (const other of others) {
+    for (const e of other.editions || []) {
+      if (!keepAllCopies && copies.some(c => isbnKey(c) === isbnKey(e))) continue;
+      // Give a copy a new id if it clashes with one already there.
+      copies.push(e.id && ids.has(e.id) ? { ...e, id: `${e.id}-${copies.length}` } : e);
+      if (e.id) ids.add(e.id);
+    }
+  }
+  merged.editions = copies;
   merged.tags = uniqueBy(list('tags'), t => String(t).toLowerCase());
   merged.genres = uniqueBy(list('genres'), t => String(t).toLowerCase());
   merged.moods = uniqueBy(list('moods'), t => String(t).toLowerCase());
@@ -139,7 +153,7 @@ export function createLibraryTools({ db, requireUser, readJson, HttpError, valid
       const others = [...new Set((Array.isArray(body.mergeIds) ? body.mergeIds : []).map(String))]
         .filter(id => id !== keep.row.id).map(id => getBook(user.id, id)).filter(Boolean);
       if (others.length === 0) throw new HttpError(400, 'Choose at least one other copy to merge.');
-      const data = validateBook(mergeBooks(keep.data, others.map(o => o.data)));
+      const data = validateBook(mergeBooks(keep.data, others.map(o => o.data), { keepAllCopies: body.keepAllCopies === true }));
       db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?").run(JSON.stringify(data), keep.row.id, user.id);
       // A cover file the merged book now uses must not be deleted with the trash later.
       moveToTrash(user.id, others.map(o => o.row.id));
