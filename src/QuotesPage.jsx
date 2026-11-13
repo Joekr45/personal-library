@@ -1,11 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { Quote, Search, Copy } from 'lucide-react';
+import { Quote, Search, Copy, Upload } from 'lucide-react';
+import KindleImport from './KindleImport.jsx';
 import { formatDate } from './reading.js';
 import { shareOrCopy } from './lending.js';
 
 // "My Quotes": every quote saved on any book, newest first, with a search box.
-export default function QuotesPage({ books, onOpenBook }) {
+export default function QuotesPage({ books, onOpenBook, onUpdateBook }) {
   const [q, setQ] = useState('');
+  const [kindle, setKindle] = useState(false);
   const [note, setNote] = useState('');
   const all = useMemo(() => books
     .flatMap(book => (book.quotes || []).map((quote, i) => ({ book, quote, key: `${book.id}-${i}` })))
@@ -24,8 +26,12 @@ export default function QuotesPage({ books, onOpenBook }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2"><Quote className="w-5 h-5 text-emerald-600" /> My Quotes ({all.length})</h2>
-        {note && <span className="text-xs text-emerald-700 font-semibold">{note}</span>}
+        <div className="flex items-center gap-3">
+          {note && <span className="text-xs text-emerald-700 font-semibold">{note}</span>}
+          <button onClick={() => setKindle(true)} className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-emerald-50 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5"><Upload className="w-3.5 h-3.5 text-emerald-600" /> Import Kindle highlights</button>
+        </div>
       </div>
+      {kindle && <KindleImport books={books} onUpdateBook={onUpdateBook} onClose={() => setKindle(false)} />}
       {all.length === 0 ? (
         <p className="p-6 text-center text-xs text-slate-500 bg-white border border-slate-200 rounded-2xl">
           No quotes yet. Open any book and use <b>My quotes → Add a quote</b> to save lines you love.
@@ -41,6 +47,7 @@ export default function QuotesPage({ books, onOpenBook }) {
             {shown.map(item => (
               <figure key={item.key} className="p-4 bg-white border border-slate-200 rounded-2xl space-y-2">
                 <blockquote className="text-sm text-slate-800 italic whitespace-pre-wrap">“{item.quote.text}”</blockquote>
+                {item.quote.note && <p className="text-xs text-slate-600 whitespace-pre-wrap">✎ {item.quote.note}</p>}
                 <figcaption className="flex items-center gap-2 text-[11px] text-slate-500">
                   <button onClick={() => onOpenBook(item.book)} className="text-left hover:text-orange-600 min-w-0 truncate">
                     — <b className="text-slate-700">{item.book.workTitle}</b>, {item.book.author}{item.quote.page ? ` · p. ${item.quote.page}` : ''}

@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -217,6 +217,26 @@ function migrate(db) {
           auth       TEXT NOT NULL,
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+      `);
+    }
+    if (current < 10) {
+      db.exec(`
+        -- "Can I borrow this?" requests between people.
+        CREATE TABLE borrow_requests (
+          id           TEXT PRIMARY KEY,
+          owner_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          book_id      TEXT NOT NULL,
+          book         TEXT NOT NULL,
+          message      TEXT,
+          reply        TEXT,
+          status       TEXT NOT NULL DEFAULT 'pending', -- pending, lent, returned, declined, cancelled
+          due_on       TEXT,
+          created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX borrow_owner ON borrow_requests(owner_id);
+        CREATE INDEX borrow_requester ON borrow_requests(requester_id);
       `);
     }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);

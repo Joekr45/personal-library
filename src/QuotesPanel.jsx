@@ -41,6 +41,7 @@ export default function QuotesPanel({ book, onUpdate }) {
           {quotes.map((q, i) => (
             <li key={i} className="bg-white rounded-xl p-3 border border-emerald-100">
               <p className="text-xs text-slate-800 italic whitespace-pre-wrap">“{q.text}”</p>
+              {q.note && <p className="text-[11px] text-slate-600 whitespace-pre-wrap">✎ {q.note}</p>}
               <div className="mt-1.5 flex items-center gap-2 text-[10px] text-slate-400">
                 {q.page && <span>Page {q.page}</span>}
                 <button onClick={() => copy(q)} className="ml-auto flex items-center gap-1 hover:text-emerald-700" aria-label="Copy quote"><Copy className="w-3 h-3" /> Copy</button>

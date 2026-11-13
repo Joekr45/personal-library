@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BookOpen, Flame, Inbox, BellRing, Sparkles, Library, Activity, Plus, Target, ChevronRight } from 'lucide-react';
+import { BookOpen, Flame, Inbox, BellRing, Sparkles, Library, Activity, Plus, Target, ChevronRight, Dices, HandHeart } from 'lucide-react';
 import { api } from './api.js';
 import { progressOf, progressLabel } from './shelves.js';
 import { finishesInYear } from './YearInReview.jsx';
@@ -12,7 +12,7 @@ const greeting = () => {
 };
 
 // Home: what you're reading, today's reading time, and anything that needs you, at a glance.
-export default function HomePage({ books, currentUser, overdue, inboxCount, newCount, onOpenBook, onGo, onScan, BookCover }) {
+export default function HomePage({ books, currentUser, overdue, inboxCount, newCount, onOpenBook, onGo, onScan, onPickNext, borrowWaiting = 0, BookCover }) {
   const [log, setLog] = useState(null);
   const [goal, setGoal] = useState(null);
   const [feed, setFeed] = useState(null);
@@ -32,6 +32,7 @@ export default function HomePage({ books, currentUser, overdue, inboxCount, newC
   const addMinutes = async (m) => { try { setLog(await api.logMinutes(m)); } catch { /* try again */ } };
 
   const alertTiles = [
+    borrowWaiting > 0 && { key: 'borrow', icon: HandHeart, color: 'bg-rose-50 border-rose-200 text-rose-700', text: `${borrowWaiting} ${borrowWaiting === 1 ? 'person wants' : 'people want'} to borrow a book`, go: 'borrow' },
     inboxCount > 0 && { key: 'inbox', icon: Inbox, color: 'bg-rose-50 border-rose-200 text-rose-700', text: `${inboxCount} book${inboxCount === 1 ? '' : 's'} recommended to you`, go: 'activity' },
     overdue.length > 0 && { key: 'overdue', icon: BellRing, color: 'bg-red-50 border-red-200 text-red-700', text: `${overdue.length} lent book${overdue.length === 1 ? ' is' : 's are'} overdue`, go: 'lent' },
     available.length > 0 && { key: 'wish', icon: Library, color: 'bg-emerald-50 border-emerald-200 text-emerald-700', text: `${available.length} wishlist book${available.length === 1 ? '' : 's'} available or on sale`, go: 'wishlist' },
@@ -58,7 +59,10 @@ export default function HomePage({ books, currentUser, overdue, inboxCount, newC
       <section className="space-y-2" aria-label="Currently reading">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2"><BookOpen className="w-4 h-4 text-orange-500" /> Currently reading</h3>
-          {reading.length > 0 && <button onClick={() => onGo('reading')} className="text-[11px] font-semibold text-slate-500">See all</button>}
+          <div className="flex items-center gap-3">
+            {books.some(b => b.owned !== false && b.readingStatus === 'Unread') && <button onClick={onPickNext} className="text-[11px] font-semibold text-orange-600 flex items-center gap-1"><Dices className="w-3.5 h-3.5" /> Pick my next read</button>}
+            {reading.length > 0 && <button onClick={() => onGo('reading')} className="text-[11px] font-semibold text-slate-500">See all</button>}
+          </div>
         </div>
         {reading.length === 0 ? (
           <p className="p-4 bg-white border border-slate-200 rounded-2xl text-xs text-slate-500">

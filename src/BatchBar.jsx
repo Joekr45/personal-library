@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { X, Trash2, Tags, MapPin, Heart, Library, CheckSquare } from 'lucide-react';
+import { X, Trash2, Tags, MapPin, Heart, Library, CheckSquare , Printer } from 'lucide-react';
 
 // The bar at the bottom while selecting books: change them all at once.
-export default function BatchBar({ count, total, onSelectAll, onClear, onDone, onApply, shelves }) {
+export default function BatchBar({ count, total, onSelectAll, onClear, onDone, onApply, onPrintLabels, shelves }) {
   const [busy, setBusy] = useState(false);
   const run = async (body) => { setBusy(true); try { await onApply(body); } finally { setBusy(false); } };
   const disabled = busy || count === 0;
@@ -35,6 +35,7 @@ export default function BatchBar({ count, total, onSelectAll, onClear, onDone, o
       <button disabled={disabled} onClick={() => { const where = prompt('Where are these books? (e.g. Bedroom shelf)'); if (where !== null) run({ shelfLocation: where.trim() }); }} className={button}><MapPin className="w-3.5 h-3.5" /> Location</button>
       <button disabled={disabled} onClick={() => run({ owned: true })} className={button}><Library className="w-3.5 h-3.5" /> I own these</button>
       <button disabled={disabled} onClick={() => run({ owned: false })} className={button}><Heart className="w-3.5 h-3.5" /> To wishlist</button>
+      <button disabled={disabled} onClick={onPrintLabels} className={button}><Printer className="w-3.5 h-3.5" /> Labels</button>
       <button disabled={disabled} onClick={() => confirm(`Delete ${count} book${count === 1 ? '' : 's'}? They go to Recently deleted for 30 days.`) && run({ trash: true })} className={`${button} text-red-300`}><Trash2 className="w-3.5 h-3.5" /> Delete</button>
       <button onClick={onDone} className="ml-auto px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-xs font-semibold flex items-center gap-1"><X className="w-3.5 h-3.5" /> Done</button>
     </div>
