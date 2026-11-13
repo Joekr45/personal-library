@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Settings, CheckCircle2, RefreshCw, ExternalLink, AlertTriangle, Download, KeyRound, Users, Database,
-  Smartphone, Trash2, Lock, Upload, Moon, Library
+  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info
 } from 'lucide-react';
 import { api } from './api.js';
 import { getTheme, setTheme } from './theme.js';
@@ -17,6 +17,42 @@ function Section({ icon: Icon, title, children }) {
 
 const inputClass = 'w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-orange-500';
 const buttonClass = 'px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 hover:bg-slate-50 flex items-center justify-center gap-1.5 disabled:opacity-50';
+
+// ---------- Activity feed ----------
+function ActivitySection() {
+  const [on, setOn] = useState(null);
+  useEffect(() => { api.mySocial().then(s => setOn(s.activityOn)).catch(() => setOn(true)); }, []);
+  if (on === null) return null;
+  return (
+    <Section icon={Activity} title="Activity feed">
+      <label className="flex items-start gap-2 p-3 bg-slate-50 rounded-xl cursor-pointer">
+        <input type="checkbox" checked={on} className="w-4 h-4 mt-0.5 accent-orange-500"
+          onChange={async (e) => { const next = e.target.checked; setOn(next); try { setOn(await api.setActivity(next)); } catch { setOn(!next); } }} />
+        <span><b>Show my reading activity to family &amp; friends.</b> When you start, finish, rate or post an update about a book, it appears in their Activity feed, and your ratings help their Discover page. Your notes and private reviews are never shared.</span>
+      </label>
+    </Section>
+  );
+}
+
+// ---------- Fill in descriptions & genres for every book ----------
+function FillInfoButton({ books, onBookSaved }) {
+  const todo = (books || []).filter(b => !b.infoCheckedOn);
+  const [progress, setProgress] = useState(null);
+  const run = async () => {
+    let done = 0;
+    setProgress({ done, total: todo.length });
+    for (const b of todo) {
+      try { const res = await api.fillBookInfo(b.id); onBookSaved?.(res.book); } catch { /* skip it */ }
+      done++;
+      setProgress({ done, total: todo.length });
+    }
+  };
+  if (progress) {
+    return <p className="text-slate-500 flex items-center gap-1.5">{progress.done < progress.total ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />} Book info: {progress.done} of {progress.total} done{progress.done < progress.total ? ' (keep this window open)' : '.'}</p>;
+  }
+  if (todo.length === 0) return null;
+  return <button onClick={run} className={buttonClass}><Info className="w-3.5 h-3.5" /> Fill in descriptions &amp; genres for {todo.length} book{todo.length === 1 ? '' : 's'}</button>;
+}
 
 // ---------- Appearance ----------
 function AppearanceSection() {
@@ -452,7 +488,7 @@ function SharingToggle({ onChange }) {
   );
 }
 
-export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange, onImport, prefs, onPrefsChange }) {
+export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange, onImport, prefs, onPrefsChange, books, onBookSaved }) {
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4">
       <div className="bg-white sm:rounded-3xl shadow-2xl max-w-lg w-full flex flex-col h-full sm:h-auto sm:max-h-[92vh] overflow-hidden">
@@ -471,8 +507,10 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
             <p className="text-slate-500">Download all your books as a spreadsheet (opens in Excel, Google Sheets or Numbers), or bring in your books from Goodreads.</p>
             <a href="/api/export/books.csv" className={buttonClass}><Download className="w-3.5 h-3.5" /> Download my books (spreadsheet)</a>
             <button onClick={onImport} className={buttonClass}><Upload className="w-3.5 h-3.5" /> Import from Goodreads</button>
+            <FillInfoButton books={books} onBookSaved={onBookSaved} />
             {currentUser?.circle !== 'friend' && <SharingToggle onChange={onFamilyChange} />}
           </Section>
+          <ActivitySection />
           <AppearanceSection />
           <LibrarySection prefs={prefs} onPrefsChange={onPrefsChange} />
           <InstallSection />

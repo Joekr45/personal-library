@@ -1,12 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { BookOpenCheck, PartyPopper } from 'lucide-react';
+import { BookOpenCheck, PartyPopper, MessageSquarePlus } from 'lucide-react';
 import { totalPagesOf, progressOf } from './shelves.js';
-import { statusChanges } from './reading.js';
+import { statusChanges, today, formatDate } from './reading.js';
 
 // For a book you're reading: which page you're on, with a progress bar.
 export default function ProgressPanel({ book, onUpdate }) {
   const [page, setPage] = useState(book.currentPage ?? '');
   const [total, setTotal] = useState(totalPagesOf(book) || '');
+  const [updateText, setUpdateText] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const updates = book.updates || [];
+  // "Post an update": the page you're on plus a thought; shows in your timeline and the activity feed.
+  const postUpdate = async (e) => {
+    e.preventDefault();
+    const pageNow = page === '' ? null : Math.max(0, Math.round(Number(page))) || null;
+    if (!pageNow && !updateText.trim()) return;
+    const saved = await onUpdate({
+      currentPage: pageNow ?? book.currentPage ?? null,
+      updates: [...updates, { page: pageNow, text: updateText.trim() || null, on: today() }]
+    });
+    if (saved) setUpdateText('');
+  };
   useEffect(() => { setPage(book.currentPage ?? ''); }, [book.id, book.currentPage]);
   useEffect(() => { setTotal(totalPagesOf(book) || ''); }, [book.id, totalPagesOf(book)]);
 
@@ -53,6 +67,26 @@ export default function ProgressPanel({ book, onUpdate }) {
       <div className="h-2 rounded-full bg-orange-100 overflow-hidden" role="progressbar" aria-valuenow={progress?.pct || 0} aria-valuemin={0} aria-valuemax={100}>
         <div className="h-full bg-orange-500 rounded-full transition-all" style={{ width: `${progress?.pct || 0}%` }} />
       </div>
+      <form onSubmit={postUpdate} className="flex gap-2">
+        <input value={updateText} onChange={(e) => setUpdateText(e.target.value)} maxLength={2000} aria-label="Reading update"
+          placeholder={`What's happening at page ${page || '…'}? (optional)`}
+          className="flex-1 min-w-0 px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:border-orange-400" />
+        <button type="submit" className="px-2.5 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-semibold flex items-center gap-1 flex-shrink-0">
+          <MessageSquarePlus className="w-3.5 h-3.5" /> Post update
+        </button>
+      </form>
+      {updates.length > 0 && (
+        <ul className="space-y-1 border-l-2 border-orange-200 pl-3">
+          {(showAll ? [...updates].reverse() : [...updates].reverse().slice(0, 3)).map((u, i) => (
+            <li key={i} className="text-[11px] text-slate-600">
+              <span className="font-semibold text-orange-700">{u.page ? `p. ${u.page}` : 'Note'}</span>
+              {u.on && <span className="text-slate-400"> · {formatDate(u.on)}</span>}
+              {u.text && <span> — {u.text}</span>}
+            </li>
+          ))}
+          {updates.length > 3 && <li><button onClick={() => setShowAll(v => !v)} className="text-[11px] font-semibold text-slate-500">{showAll ? 'Show fewer' : `Show all ${updates.length} updates`}</button></li>}
+        </ul>
+      )}
       {!totalPagesOf(book) && <p className="text-[11px] text-slate-500">Type the number of pages to see how far along you are.</p>}
       {atEnd && (
         <button onClick={() => onUpdate(statusChanges(book, 'Completed'))} className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-semibold flex items-center justify-center gap-1.5">

@@ -18,6 +18,7 @@ export const formatDate = (date) => {
 export function statusChanges(book, status) {
   const changes = { readingStatus: status };
   if (status === 'Reading' && !book.dateStarted) changes.dateStarted = today();
+  if (status === 'DNF') changes.dnfOn = today();
   if (status === 'Completed') {
     if (!book.dateFinished) changes.dateFinished = today();
     if (!book.dateStarted && book.readingStatus === 'Reading') changes.dateStarted = today();

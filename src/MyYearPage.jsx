@@ -4,6 +4,7 @@ import { api } from './api.js';
 import StarRating from './StarRating.jsx';
 import { yearOf, formatDate, upNextInSeries } from './reading.js';
 import YearInReview, { finishesInYear } from './YearInReview.jsx';
+import ReadingStats from './ReadingStats.jsx';
 import { Cover } from './AuthorPage.jsx';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -155,6 +156,8 @@ export default function MyYearPage({ books, onOpenBook }) {
           </p>
         </section>
       )}
+
+      <ReadingStats entries={entries} year={year} />
 
       {year === thisYear && <UpNext books={books} onOpenBook={onOpenBook} />}
 

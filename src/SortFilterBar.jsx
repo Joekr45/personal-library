@@ -34,7 +34,7 @@ export const SORTERS = {
   published: desc(pubYear)
 };
 
-export const EMPTY_FILTERS = { shelf: '', language: '', format: '', rating: '', collector: '' };
+export const EMPTY_FILTERS = { shelf: '', language: '', format: '', rating: '', collector: '', genre: '', mood: '', pace: '' };
 
 export function applyFilters(books, filters) {
   return books.filter(b => {
@@ -44,6 +44,9 @@ export function applyFilters(books, filters) {
     if (filters.format && (e.format || '') !== filters.format) return false;
     if (filters.rating === 'unrated' && b.rating) return false;
     if (filters.rating && filters.rating !== 'unrated' && !(Number(b.rating) >= Number(filters.rating))) return false;
+    if (filters.genre && !(b.genres || []).includes(filters.genre)) return false;
+    if (filters.mood && !(b.moods || []).includes(filters.mood)) return false;
+    if (filters.pace && b.pace !== filters.pace) return false;
     const c = b.collector || {};
     if (filters.collector === 'signed' && !c.signed) return false;
     if (filters.collector === 'first' && !c.firstEdition) return false;
@@ -60,7 +63,9 @@ export default function SortFilterBar({ books, sortBy, onSortChange, filters, on
     return {
       shelf: uniq(b => b.shelfLocation),
       language: uniq(b => b.editions?.[0]?.language || 'English'),
-      format: uniq(b => b.editions?.[0]?.format)
+      format: uniq(b => b.editions?.[0]?.format),
+      genre: [...new Set(books.flatMap(b => b.genres || []))].sort((a, b) => collator.compare(a, b)),
+      mood: [...new Set(books.flatMap(b => b.moods || []))].sort((a, b) => collator.compare(a, b))
     };
   }, [books]);
   const active = Object.values(filters).filter(Boolean).length;
@@ -101,6 +106,24 @@ export default function SortFilterBar({ books, sortBy, onSortChange, filters, on
               <option value="4">★★★★ and up</option>
               <option value="3">★★★ and up</option>
               <option value="unrated">Not rated yet</option>
+            </select>
+          </label>
+          {[['genre', 'Genre'], ['mood', 'Mood']].filter(([key]) => options[key].length > 0).map(([key, label]) => (
+            <label key={key} className="flex flex-col gap-0.5 text-[10px] uppercase font-semibold text-slate-400">
+              {label}
+              <select value={filters[key] || ''} onChange={(e) => onFiltersChange({ ...filters, [key]: e.target.value })} className={select}>
+                <option value="">Any</option>
+                {options[key].map(v => <option key={v} value={v}>{v}</option>)}
+              </select>
+            </label>
+          ))}
+          <label className="flex flex-col gap-0.5 text-[10px] uppercase font-semibold text-slate-400">
+            Pace
+            <select value={filters.pace || ''} onChange={(e) => onFiltersChange({ ...filters, pace: e.target.value })} className={select}>
+              <option value="">Any</option>
+              <option value="slow">Slow</option>
+              <option value="medium">Medium</option>
+              <option value="fast">Fast</option>
             </select>
           </label>
           <label className="flex flex-col gap-0.5 text-[10px] uppercase font-semibold text-slate-400">

@@ -95,7 +95,7 @@ test('the Owner can move someone between Family and Friend', async () => {
 test('open sign-ups start as Friend; existing accounts stay Family after the upgrade', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-up6-'));
   const db = openDatabase(dir);
-  db.exec("ALTER TABLE users DROP COLUMN circle; ALTER TABLE invites DROP COLUMN circle; PRAGMA user_version = 5;");
+  db.exec("DROP TABLE activity; DROP TABLE recommendations; DROP TABLE club_posts; DROP TABLE club_members; DROP TABLE clubs; DROP TABLE lists; DROP TABLE reading_log; DROP TABLE reading_days; DROP TABLE gift_claims; ALTER TABLE users DROP COLUMN circle; ALTER TABLE invites DROP COLUMN circle; PRAGMA user_version = 5;");
   db.prepare("INSERT INTO users (id, email, password_hash, display_name, role, color) VALUES ('u1', 'old@x.com', 'h', 'Old', 'Member', 'c')").run();
   db.close();
   const again = openDatabase(dir);

@@ -109,3 +109,43 @@ api.createChallenge = (c) => request('POST', '/api/challenges', c).then(d => d.c
 api.joinChallenge = (id) => request('POST', `/api/challenges/${encodeURIComponent(id)}/join`).then(d => d.challenges);
 api.leaveChallenge = (id) => request('POST', `/api/challenges/${encodeURIComponent(id)}/leave`).then(d => d.challenges);
 api.deleteChallenge = (id) => request('DELETE', `/api/challenges/${encodeURIComponent(id)}`).then(d => d.challenges);
+
+// Book info, people, feed, reviews, recommendations
+api.fillBookInfo = (id) => request('POST', `/api/books/${encodeURIComponent(id)}/info`);
+api.people = () => request('GET', '/api/people').then(d => d.people);
+api.feed = () => request('GET', '/api/feed');
+api.mySocial = () => request('GET', '/api/me/social');
+api.setActivity = (on) => request('PUT', '/api/me/activity', { on }).then(d => d.activityOn);
+api.reviews = ({ title, author, isbn }) => request('GET', `/api/reviews?${new URLSearchParams({ title: title || '', author: author || '', isbn: isbn || '' })}`).then(d => d.reviews);
+api.recommendations = () => request('GET', '/api/recommendations');
+api.recommend = (toUserId, book, note) => request('POST', '/api/recommendations', { toUserId, book, note });
+api.answerRecommendation = (id, status) => request('POST', `/api/recommendations/${encodeURIComponent(id)}/${status}`);
+
+// Book clubs and lists
+api.clubs = () => request('GET', '/api/clubs').then(d => d.clubs);
+api.club = (id) => request('GET', `/api/clubs/${encodeURIComponent(id)}`);
+api.createClub = (name, book) => request('POST', '/api/clubs', { name, book }).then(d => d.club);
+api.joinClub = (id) => request('POST', `/api/clubs/${encodeURIComponent(id)}/join`);
+api.leaveClub = (id) => request('POST', `/api/clubs/${encodeURIComponent(id)}/leave`);
+api.deleteClub = (id) => request('DELETE', `/api/clubs/${encodeURIComponent(id)}`).then(d => d.clubs);
+api.postToClub = (id, text, page) => request('POST', `/api/clubs/${encodeURIComponent(id)}/posts`, { text, page });
+api.deleteClubPost = (id, postId) => request('DELETE', `/api/clubs/${encodeURIComponent(id)}/posts/${encodeURIComponent(postId)}`);
+api.lists = () => request('GET', '/api/lists').then(d => d.lists);
+api.createList = (list) => request('POST', '/api/lists', list).then(d => d.list);
+api.updateList = (id, changes) => request('PUT', `/api/lists/${encodeURIComponent(id)}`, changes).then(d => d.list);
+api.deleteList = (id) => request('DELETE', `/api/lists/${encodeURIComponent(id)}`);
+
+// Reading log, gifts, discover, follows, wishlist checks
+api.readingLog = () => request('GET', '/api/me/reading-log');
+api.logMinutes = (minutes, day) => request('POST', '/api/me/reading-log', { minutes, day });
+api.setReadingGoal = (minutes) => request('PUT', '/api/me/reading-goal', { minutes }).then(d => d.goal);
+api.familyReadingTime = () => request('GET', '/api/family/reading-time');
+api.gifts = () => request('GET', '/api/gifts');
+api.setGiftSharing = (on) => request('PUT', '/api/me/gift-sharing', { on }).then(d => d.sharing);
+api.claimGift = (bookId) => request('POST', `/api/gifts/${encodeURIComponent(bookId)}/claim`);
+api.unclaimGift = (bookId) => request('DELETE', `/api/gifts/${encodeURIComponent(bookId)}/claim`);
+api.discover = () => request('GET', '/api/discover');
+api.follows = () => request('GET', '/api/me/follows').then(d => d.authors);
+api.setFollow = (name, follow, key) => request('PUT', '/api/me/follows', { name, follow, key }).then(d => d.authors);
+api.wishlistCheck = () => request('GET', '/api/wishlist/check');
+api.runWishlistCheck = () => request('POST', '/api/wishlist/check');

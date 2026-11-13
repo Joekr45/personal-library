@@ -1,5 +1,5 @@
-import React from 'react';
-import { ExternalLink, Library } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ExternalLink, Library, BellRing } from 'lucide-react';
 import { toIsbn13 } from '../shared/isbn.js';
 
 // Links to borrow or buy a book: your library (Libby), WorldCat, and a few shops and book sites.
@@ -22,8 +22,14 @@ export function findItLinks(book, prefs) {
   return links;
 }
 
-export default function FindItLinks({ book, prefs }) {
+export default function FindItLinks({ book, prefs, onUpdate }) {
   const links = findItLinks(book, prefs);
+  const [target, setTarget] = useState(book.targetPrice ?? '');
+  useEffect(() => { setTarget(book.targetPrice ?? ''); }, [book.id, book.targetPrice]);
+  const saveTarget = () => {
+    const value = target === '' ? null : Number(target);
+    if (value !== (book.targetPrice ?? null)) onUpdate?.({ targetPrice: value });
+  };
   return (
     <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-2">
       <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800"><Library className="w-4 h-4 text-orange-500" /> Borrow or buy</div>
@@ -35,6 +41,14 @@ export default function FindItLinks({ book, prefs }) {
           </a>
         ))}
       </div>
+      {book.owned === false && onUpdate && (
+        <label className="flex items-center gap-2 text-[11px] text-slate-600">
+          <BellRing className="w-3.5 h-3.5 text-orange-500" /> Let me know when the ebook is under $
+          <input type="number" min="0" step="0.01" inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)}
+            onBlur={saveTarget} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} aria-label="Price alert"
+            placeholder="e.g. 5" className="w-20 px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white" />
+        </label>
+      )}
       {!prefs?.libbyLibrary && <p className="text-[10px] text-slate-400">Tip: add your public library in Settings to get a “Borrow (Libby)” button.</p>}
     </div>
   );
