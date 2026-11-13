@@ -194,12 +194,40 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       data.rating = r >= 0.5 && r <= 5 ? r : null;
     }
     if (data.notes !== undefined) data.notes = typeof data.notes === 'string' ? data.notes.slice(0, 20000) : null;
-    // Lending history: [{ to, lentOn, returnedOn }]
+    const date = (d) => (d && /^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? String(d) : null);
+    // Lending history: [{ to, lentOn, dueOn, returnedOn }]
     if (data.loans !== undefined) {
-      const date = (d) => (d && /^\d{4}-\d{2}-\d{2}$/.test(String(d)) ? String(d) : null);
       data.loans = (Array.isArray(data.loans) ? data.loans : []).slice(-100)
-        .map(l => ({ to: cleanText(l?.to, 100), lentOn: date(l?.lentOn), returnedOn: date(l?.returnedOn) }))
+        .map(l => ({ to: cleanText(l?.to, 100), lentOn: date(l?.lentOn), dueOn: date(l?.dueOn), returnedOn: date(l?.returnedOn) }))
         .filter(l => l.to);
+    }
+    // Saved quotes: [{ text, page, addedOn }]
+    if (data.quotes !== undefined) {
+      data.quotes = (Array.isArray(data.quotes) ? data.quotes : []).slice(-500)
+        .map(q => {
+          const page = Math.round(Number(q?.page));
+          return { text: cleanText(q?.text, 3000), page: q?.page !== null && q?.page !== '' && page > 0 && page <= 100000 ? page : null, addedOn: date(q?.addedOn) };
+        })
+        .filter(q => q.text);
+    }
+    // Earlier reads of this book (re-reads): [{ started, finished }]
+    if (data.reads !== undefined) {
+      data.reads = (Array.isArray(data.reads) ? data.reads : []).slice(-100)
+        .map(r => ({ started: date(r?.started), finished: date(r?.finished) }))
+        .filter(r => r.started || r.finished);
+    }
+    // Collector details for your copy.
+    if (data.collector !== undefined) {
+      const c = data.collector && typeof data.collector === 'object' ? data.collector : {};
+      const CONDITIONS = ['New', 'Fine', 'Very good', 'Good', 'Fair', 'Poor'];
+      data.collector = {
+        signed: c.signed === true,
+        firstEdition: c.firstEdition === true,
+        condition: CONDITIONS.includes(c.condition) ? c.condition : null,
+        boughtFrom: cleanText(c.boughtFrom, 100) || null,
+        pricePaid: cleanText(c.pricePaid, 20) || null,
+        boughtOn: date(c.boughtOn)
+      };
     }
     // My shelves (tags): up to 50 short names per book, no duplicates (ignoring capitals).
     if (data.tags !== undefined) {
@@ -228,6 +256,50 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     id: row.id,
     ...(row.created_at ? { addedAt: `${row.created_at.replace(' ', 'T')}Z` } : {})
   });
+
+  // Every date a book was finished: earlier reads, plus the latest one once it's marked Completed.
+  const finishDates = (b) => [
+    ...(Array.isArray(b.reads) ? b.reads.map(r => r?.finished) : []),
+    b.readingStatus === 'Completed' ? b.dateFinished : null
+  ].filter(Boolean);
+
+  const listChallenges = (user) => {
+    const users = new Map(db.prepare('SELECT id, display_name, color FROM users').all().map(u => [u.id, u]));
+    return db.prepare('SELECT * FROM challenges ORDER BY ends_on DESC, created_at DESC').all().map(c => {
+      const members = db.prepare('SELECT user_id FROM challenge_members WHERE challenge_id = ? ORDER BY joined_at').all(c.id)
+        .map(({ user_id }) => {
+          const u = users.get(user_id);
+          if (!u) return null;
+          let count = 0;
+          for (const row of db.prepare('SELECT data FROM books WHERE user_id = ?').all(user_id)) {
+            count += finishDates(JSON.parse(row.data)).filter(d => d >= c.starts_on && d <= c.ends_on).length;
+          }
+          return { id: u.id, displayName: u.display_name, color: u.color, finished: count, isMe: u.id === user.id };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.finished - a.finished);
+      return {
+        id: c.id, name: c.name, target: c.target, startsOn: c.starts_on, endsOn: c.ends_on,
+        createdBy: users.get(c.created_by)?.display_name || null,
+        canDelete: c.created_by === user.id || user.role === 'Owner',
+        joined: members.some(m => m.isMe),
+        members
+      };
+    });
+  };
+
+  const challengeAction = async (req, id, action) => {
+    const user = requireUser(req);
+    const challenge = db.prepare('SELECT * FROM challenges WHERE id = ?').get(id);
+    if (!challenge) throw new HttpError(404, 'That challenge no longer exists.');
+    if (action === 'join') db.prepare('INSERT OR IGNORE INTO challenge_members (challenge_id, user_id) VALUES (?, ?)').run(id, user.id);
+    else if (action === 'leave') db.prepare('DELETE FROM challenge_members WHERE challenge_id = ? AND user_id = ?').run(id, user.id);
+    else {
+      if (challenge.created_by !== user.id && user.role !== 'Owner') throw new HttpError(403, 'Only the person who made this challenge (or the Owner) can delete it.');
+      db.prepare('DELETE FROM challenges WHERE id = ?').run(id);
+    }
+    return { status: 200, body: { challenges: listChallenges(user) } };
+  };
 
   // ---------- API routes ----------
   const routes = {
@@ -635,6 +707,48 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       return { status: 200, body: { sharing: isSharing(user.id), members } };
     },
 
+    // Personal preferences kept on the server (e.g. which public library to search in Libby).
+    'GET /api/me/prefs': (req) => {
+      const user = requireUser(req);
+      return { status: 200, body: { prefs: JSON.parse(getSetting(`prefs:${user.id}`) || '{}') } };
+    },
+
+    'PUT /api/me/prefs': async (req) => {
+      const user = requireUser(req);
+      const body = await readJson(req);
+      const prefs = JSON.parse(getSetting(`prefs:${user.id}`) || '{}');
+      if (body.libbyLibrary !== undefined) {
+        // Libby library keys look like "nypl" or "brooklyn"
+        const key = cleanText(body.libbyLibrary, 60).toLowerCase().replace(/[^a-z0-9-]/g, '');
+        if (key) prefs.libbyLibrary = key; else delete prefs.libbyLibrary;
+      }
+      setSetting(`prefs:${user.id}`, JSON.stringify(prefs));
+      return { status: 200, body: { prefs } };
+    },
+
+    // Family reading challenges. Everyone in the library can see them and choose to join.
+    'GET /api/challenges': (req) => {
+      const user = requireUser(req);
+      return { status: 200, body: { challenges: listChallenges(user) } };
+    },
+
+    'POST /api/challenges': async (req) => {
+      const user = requireUser(req);
+      const body = await readJson(req);
+      const name = cleanText(body.name, 80);
+      const target = Number(body.target);
+      const isDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+      if (!name) throw new HttpError(400, 'Give the challenge a name.');
+      if (!Number.isInteger(target) || target < 1 || target > 1000) throw new HttpError(400, 'The goal must be between 1 and 1000 books.');
+      if (!isDate(body.startsOn) || !isDate(body.endsOn)) throw new HttpError(400, 'Choose a start and end date.');
+      if (body.endsOn < body.startsOn) throw new HttpError(400, 'The end date must be after the start date.');
+      const id = crypto.randomUUID();
+      db.prepare('INSERT INTO challenges (id, created_by, name, target, starts_on, ends_on) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, user.id, name, target, body.startsOn, body.endsOn);
+      db.prepare('INSERT INTO challenge_members (challenge_id, user_id) VALUES (?, ?)').run(id, user.id);
+      return { status: 201, body: { challenges: listChallenges(user) } };
+    },
+
     // Yearly reading goal: GET ?year=2026, PUT { year, goal }
     'GET /api/me/goal': (req) => {
       const user = requireUser(req);
@@ -721,7 +835,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     const user = requireUser(req);
     const rows = db.prepare('SELECT data, created_at FROM books WHERE user_id = ? ORDER BY created_at').all(user.id);
     const columns = ['Title', 'Author', 'Series', 'Series #', 'Shelf', 'Owned', 'Reading Status', 'ISBN13', 'Format', 'Language',
-      'Publisher', 'Year Published', 'My Rating', 'Date Read', 'Date Added', 'Notes', 'Bookshelves', 'Current Page'];
+      'Publisher', 'Year Published', 'My Rating', 'Date Read', 'Date Added', 'Notes', 'Bookshelves', 'Current Page', 'Read Count', 'Signed', 'First Edition', 'Condition', 'Bought From', 'Price Paid', 'Bought On', 'Quotes'];
     const cell = (v) => {
       const text = v === null || v === undefined ? '' : String(v);
       return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -735,7 +849,11 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         b.owned === false ? 'Wishlist' : 'Owned', b.readingStatus,
         e.isbn && e.isbn !== 'Pending Scan' ? e.isbn : '', e.format, e.language, e.publisher,
         (String(e.published || '').match(/\d{4}/) || [''])[0], b.rating, b.dateFinished, row.created_at.slice(0, 10), b.notes,
-        (b.tags || []).join(', '), b.currentPage
+        (b.tags || []).join(', '), b.currentPage,
+        (b.reads || []).filter(r => r.finished).length + (b.dateFinished || b.readingStatus === 'Completed' ? 1 : 0) || '',
+        b.collector?.signed ? 'Yes' : '', b.collector?.firstEdition ? 'Yes' : '', b.collector?.condition,
+        b.collector?.boughtFrom, b.collector?.pricePaid, b.collector?.boughtOn,
+        (b.quotes || []).map(q => `"${q.text}"${q.page ? ` (p. ${q.page})` : ''}`).join('\n')
       ].map(cell).join(','));
     }
     const csv = '\ufeff' + lines.join('\r\n') + '\r\n'; // the mark at the start helps Excel read accents correctly
@@ -897,6 +1015,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
           requireOwner(req);
           db.prepare('DELETE FROM invites WHERE code = ? AND used_at IS NULL').run(normalizeCode(inviteRoute[1]));
           return sendJson(res, 200, { ok: true });
+        }
+        const challengeRoute = pathname.match(/^\/api\/challenges\/([0-9a-f-]{36})(?:\/(join|leave))?$/);
+        if (challengeRoute) {
+          const action = challengeRoute[2] || (req.method === 'DELETE' ? 'delete' : null);
+          if ((challengeRoute[2] && req.method === 'POST') || (!challengeRoute[2] && req.method === 'DELETE')) {
+            const r = await challengeAction(req, challengeRoute[1], action);
+            return sendJson(res, r.status, r.body);
+          }
         }
         const adminUser = pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})(\/password)?$/);
         let result;

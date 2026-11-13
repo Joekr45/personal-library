@@ -3,6 +3,7 @@ import { Target, Trophy, BookOpen, Star, Pencil, Check, ChevronLeft, ChevronRigh
 import { api } from './api.js';
 import StarRating from './StarRating.jsx';
 import { yearOf, formatDate, upNextInSeries } from './reading.js';
+import YearInReview, { finishesInYear } from './YearInReview.jsx';
 import { Cover } from './AuthorPage.jsx';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -41,12 +42,9 @@ export default function MyYearPage({ books, onOpenBook }) {
     api.getGoal(year).then(d => setGoal(d.goal)).catch(() => setGoal(null));
   }, [year]);
 
-  const finished = useMemo(
-    () => books
-      .filter(b => b.readingStatus === 'Completed' && yearOf(b.dateFinished) === year)
-      .sort((a, b) => String(b.dateFinished).localeCompare(String(a.dateFinished))),
-    [books, year]
-  );
+  // One entry per time a book was finished this year (a re-read counts again).
+  const entries = useMemo(() => finishesInYear(books, year), [books, year]);
+  const finished = entries.map(e => ({ ...e.book, dateFinished: e.date }));
   const finishedNoDate = books.filter(b => b.readingStatus === 'Completed' && !b.dateFinished).length;
 
   const byMonth = MONTHS.map((_, m) => finished.filter(b => Number(String(b.dateFinished).slice(5, 7)) === m + 1).length);
@@ -146,6 +144,8 @@ export default function MyYearPage({ books, onOpenBook }) {
         </div>
       </section>
 
+      {entries.length > 0 && <YearInReview books={books} year={year} entries={entries} onOpenBook={onOpenBook} />}
+
       {year === thisYear && <UpNext books={books} onOpenBook={onOpenBook} />}
 
       {/* Finished list */}
@@ -158,8 +158,8 @@ export default function MyYearPage({ books, onOpenBook }) {
           </p>
         ) : (
           <ul className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
-            {finished.map(b => (
-              <li key={b.id}>
+            {entries.map(({ book: b, date, reread }) => (
+              <li key={`${b.id}-${date}`}>
                 <button onClick={() => onOpenBook(b)} className="w-full p-3 flex gap-3 items-center text-left">
                   <div className="w-10 flex-shrink-0"><Cover url={b.customCoverUrl} title={b.workTitle} author={b.author} /></div>
                   <div className="flex-1 min-w-0">
@@ -167,7 +167,7 @@ export default function MyYearPage({ books, onOpenBook }) {
                     <p className="text-[11px] text-slate-500 truncate">{b.author}</p>
                     {b.rating ? <StarRating value={b.rating} size="sm" /> : null}
                   </div>
-                  <span className="text-[11px] text-slate-400 flex-shrink-0">{formatDate(b.dateFinished)}</span>
+                  <span className="text-[11px] text-slate-400 flex-shrink-0 text-right">{formatDate(date)}{reread && <span className="block text-[10px] text-orange-600 font-semibold">Re-read</span>}</span>
                 </button>
               </li>
             ))}

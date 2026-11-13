@@ -18,6 +18,9 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - On a book's page: **star rating** (1–5, halves allowed), **started/finished dates** (filled in automatically when you mark a book Reading or Completed) and **notes**.
 - **My progress** (book page, while you're Reading it): the page you're on, the number of pages, **+10 / +25** buttons and a progress bar (also shown on the book's card). At the last page an **I finished it!** button marks it Finished.
 - **My Shelves**: put books on your own shelves (e.g. "Beach reads", "Signed copies", "Book club") from a book's page. They're listed in the menu with counts; on a shelf's page you can **rename** or **remove** the shelf (the books stay). Searching also matches shelf names. Your own Goodreads shelves come along when you import, and the spreadsheet export includes them.
+- **Re-reads**: on a Finished book, **Read it again** keeps the earlier read in the history and starts a new one. The book page shows "Read 2 times", and every finish counts in My Year and in challenges.
+- **My quotes** (book page): save lines with their page number; **My Quotes** in the menu lists every quote, searchable, with a copy button.
+- **Year in review** (on My Year, for any year): books, pages, authors, re-reads, favourite, longest book, first and latest, most-read author and busiest month, with a **Share** button.
 - **My Year** (menu): books finished this year, a **yearly goal** with "ahead/behind schedule", books per month, pages, average rating, top author, and **Up next in your series**.
 - Book lists have a **sort menu** (title, author, recently added, recently finished, rating, year published — remembered on each device) and **filters** (shelf, language, format, rating).
 
@@ -25,7 +28,11 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 
 - **Own it?** (top bar): scan or type an ISBN in a shop to see whether you already own the book (any edition or language), whether it's on your wishlist, and whether someone in the family has it. Nothing is added unless you choose to.
 - **Shopping list** (Wishlist page): wishlist grouped by author with series numbers, **Got it!** buttons, and copy/share as text.
-- **Lending** (book page): lend a book to someone, mark it returned, keep the history; **Lent Out** in the menu lists what's out.
+- **Lending** (book page): lend a book to someone (optionally with a **due back** date), mark it returned, keep the history; **Lent Out** in the menu lists what's out.
+- **Overdue reminders**: books past their due date (or out for 30+ days with no date) show in a red box on All Books and Lent Out, and the Lent Out count turns red. **Send a reminder** opens the phone's share sheet (or copies a friendly message) to send by text or email.
+- **Collector details** (book page): signed, first edition, condition, where/when bought and price. "Signed" / "1st edition" shows on the card, and the filters have a **Collector** option.
+- **Borrow or buy** (book page): links to WorldCat (libraries near you), Bookshop.org, Amazon, Goodreads and Hardcover. Add your library in **Settings → My public library (Libby)** to get a **Borrow (Libby)** button.
+- **Family Challenges** (menu): anyone can start a challenge (e.g. "10 books this summer"), and others can join. Each person's finished books between the dates are counted (re-reads too) on a shared progress board; only the counts are shown.
 - **Family Shelves**: each person can turn on **Share my library with the family** in Settings. Others can then browse the books on their shelves (not notes or wishlists), and see "Also on Mom's shelf" on book pages and in Own it?.
 
 ## Discovery & import
@@ -34,6 +41,8 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **Import from Goodreads** (Settings → My books): choose your Goodreads export file; read books come in as finished with ratings, reviews and dates, "currently reading" as Reading, and "want to read" as wishlist (or on your shelf, or skipped). Series are taken from Goodreads titles; books you already have are skipped.
 
 ## Settings
+
+- **Appearance:** Light, Dark or Match device (remembered on each device).
 
 - **My books:** download your books as a spreadsheet (CSV, Goodreads-style columns).
 - **Home screen:** install the app on a phone so it opens full-screen like a normal app (needs an `https://` address; on plain `http://` it works as a bookmark).

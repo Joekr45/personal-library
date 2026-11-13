@@ -213,7 +213,7 @@ test('lending history is cleaned up and kept', async () => {
   await c('POST', '/api/auth/register', { email: 'lender@example.com', password: 'long enough' });
   const b = (await c('POST', '/api/books', book('Lent Book'))).body.book;
   const lent = (await c('PUT', `/api/books/${b.id}`, { loans: [{ to: '  Sam ', lentOn: '2026-11-01', returnedOn: 'soon', extra: 'x' }, { to: '' }] })).body.book;
-  assert.deepEqual(lent.loans, [{ to: 'Sam', lentOn: '2026-11-01', returnedOn: null }]);
+  assert.deepEqual(lent.loans, [{ to: 'Sam', lentOn: '2026-11-01', dueOn: null, returnedOn: null }]);
 });
 
 test('behind a proxy, each visitor is blocked separately (not everyone at once)', async () => {

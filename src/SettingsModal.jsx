@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Settings, CheckCircle2, RefreshCw, ExternalLink, AlertTriangle, Download, KeyRound, Users, Database,
-  Smartphone, Trash2, Lock, Upload
+  Smartphone, Trash2, Lock, Upload, Moon, Library
 } from 'lucide-react';
 import { api } from './api.js';
+import { getTheme, setTheme } from './theme.js';
 
 function Section({ icon: Icon, title, children }) {
   return (
@@ -16,6 +17,63 @@ function Section({ icon: Icon, title, children }) {
 
 const inputClass = 'w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-orange-500';
 const buttonClass = 'px-3 py-2 rounded-xl text-xs font-semibold border border-slate-200 hover:bg-slate-50 flex items-center justify-center gap-1.5 disabled:opacity-50';
+
+// ---------- Appearance ----------
+function AppearanceSection() {
+  const [choice, setChoice] = useState(getTheme());
+  const pick = (value) => { setChoice(value); setTheme(value); };
+  return (
+    <Section icon={Moon} title="Appearance">
+      <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Appearance">
+        {[['light', 'Light'], ['dark', 'Dark'], ['auto', 'Match device']].map(([value, label]) => (
+          <button key={value} role="radio" aria-checked={choice === value} onClick={() => pick(value)}
+            className={`py-2 rounded-xl text-xs font-semibold border ${choice === value ? 'bg-orange-500 text-white border-orange-500' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="text-slate-500">Remembered on this device only, so your phone and computer can differ.</p>
+    </Section>
+  );
+}
+
+// ---------- My public library (Libby) ----------
+// Accepts "nypl" or a pasted Libby link like https://libbyapp.com/library/nypl/...
+export const libbyKeyFrom = (text) => {
+  const t = String(text || '').trim();
+  const fromLink = t.match(/libbyapp\.com\/(?:library|search)\/([a-z0-9-]+)/i);
+  return (fromLink ? fromLink[1] : t).toLowerCase().replace(/[^a-z0-9-]/g, '');
+};
+
+function LibrarySection({ prefs, onPrefsChange }) {
+  const [text, setText] = useState(prefs?.libbyLibrary || '');
+  const [message, setMessage] = useState('');
+  useEffect(() => { setText(prefs?.libbyLibrary || ''); }, [prefs?.libbyLibrary]);
+  const save = async (e) => {
+    e.preventDefault();
+    setMessage('');
+    try {
+      const saved = await api.setPrefs({ libbyLibrary: libbyKeyFrom(text) });
+      onPrefsChange?.(saved);
+      setMessage(saved.libbyLibrary ? 'Saved. Books now have a "Borrow (Libby)" link.' : 'Removed.');
+    } catch (err) {
+      setMessage(err.message);
+    }
+  };
+  return (
+    <Section icon={Library} title="My public library (Libby)">
+      <p className="text-slate-500">
+        To get a "Borrow from my library" link on every book: open <a href="https://libbyapp.com" target="_blank" rel="noreferrer" className="text-orange-600 underline">libbyapp.com</a>, choose your library,
+        then copy the address from the top of the page and paste it here (or just the short name after <b>/library/</b>, like <b>nypl</b>).
+      </p>
+      <form onSubmit={save} className="flex gap-2">
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. nypl or https://libbyapp.com/library/nypl" aria-label="Libby library" className={inputClass} />
+        <button type="submit" className={buttonClass}>Save</button>
+      </form>
+      {message && <p className="text-emerald-700">{message}</p>}
+    </Section>
+  );
+}
 
 // ---------- Hardcover ----------
 function HardcoverSection({ settings, onChange }) {
@@ -372,7 +430,7 @@ function SharingToggle({ onChange }) {
   );
 }
 
-export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange, onImport }) {
+export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange, onImport, prefs, onPrefsChange }) {
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4">
       <div className="bg-white sm:rounded-3xl shadow-2xl max-w-lg w-full flex flex-col h-full sm:h-auto sm:max-h-[92vh] overflow-hidden">
@@ -393,6 +451,8 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
             <button onClick={onImport} className={buttonClass}><Upload className="w-3.5 h-3.5" /> Import from Goodreads</button>
             <SharingToggle onChange={onFamilyChange} />
           </Section>
+          <AppearanceSection />
+          <LibrarySection prefs={prefs} onPrefsChange={onPrefsChange} />
           <InstallSection />
           <PasswordSection />
           <HardcoverSection settings={settings} onChange={onChange} />
