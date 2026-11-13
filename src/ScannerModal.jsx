@@ -749,7 +749,16 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
                 <div className="text-xs min-w-0 flex-1 space-y-1">
                   <div className="font-bold text-slate-900 text-sm">{result.title}</div>
                   {result.subtitle && <div className="text-slate-600">{result.subtitle}</div>}
-                  <div className="text-slate-700">by {result.authors?.join(', ') || 'Unknown author'}</div>
+                  {result.authors?.length && !result.authorTyped ? (
+                    <div className="text-slate-700">by {result.authors.join(', ')}</div>
+                  ) : (
+                    <label className="block">
+                      <span className="text-[11px] text-amber-700 font-semibold">No catalog knows the author. Type it (from the cover):</span>
+                      <input value={result.authors?.join(', ') || ''} autoFocus aria-label="Author"
+                        onChange={(e) => setResult(prev => ({ ...prev, authorTyped: true, authors: e.target.value ? [e.target.value] : [] }))}
+                        placeholder="e.g. Ken Follett" className="mt-0.5 w-full px-2 py-1.5 border border-amber-300 rounded-lg text-xs bg-white" />
+                    </label>
+                  )}
                   <div className="text-[11px] text-slate-500">
                     {[result.publisher, result.publishedDate, result.format].filter(Boolean).join(' • ')}
                   </div>

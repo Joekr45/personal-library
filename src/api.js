@@ -149,3 +149,4 @@ api.follows = () => request('GET', '/api/me/follows').then(d => d.authors);
 api.setFollow = (name, follow, key) => request('PUT', '/api/me/follows', { name, follow, key }).then(d => d.authors);
 api.wishlistCheck = () => request('GET', '/api/wishlist/check');
 api.runWishlistCheck = () => request('POST', '/api/wishlist/check');
+api.fixAuthors = () => request('POST', '/api/books/fix-authors');

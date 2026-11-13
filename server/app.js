@@ -50,7 +50,8 @@ class HttpError extends Error {
 
 export function createServer({ dataDir, distDir, allowRegistration = true, signupMode: defaultSignupMode, fetchImpl, googleApiKey, resolveHost, startBackups = false }) {
   const db = openDatabase(dataDir);
-  const lookup = createLookup({ fetchImpl, googleApiKey });
+  // Hardcover (if connected) is a last place to look for an author the other catalogs don't know.
+  const lookup = createLookup({ fetchImpl, googleApiKey, extraAuthors: (isbn13) => hardcover.authorsByIsbn(isbn13) });
   const covers = createCoverStore({ dataDir, fetchImpl, resolveHost });
 
   // Library-wide settings
@@ -651,6 +652,26 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     },
 
     // Add many books at once (Goodreads import). Invalid entries are skipped and counted.
+    // Try again to find the author of books saved as "Unknown Author".
+    'POST /api/books/fix-authors': async (req) => {
+      const user = requireUser(req);
+      const unknown = (a) => !String(a || '').trim() || /^unknown( author)?$/i.test(String(a).trim());
+      const rows = db.prepare('SELECT id, data FROM books WHERE user_id = ?').all(user.id)
+        .map(r => ({ id: r.id, book: JSON.parse(r.data) })).filter(r => unknown(r.book.author));
+      const fixed = [];
+      for (const { id, book } of rows.slice(0, 100)) {
+        const code = (book.editions || []).map(e => classifyCode(String(e.isbn || ''))).find(c => c?.kind === 'isbn');
+        let authors = [];
+        if (code) authors = (await lookup.lookupIsbn(code.isbn13, code.isbn10).catch(() => null))?.authors || [];
+        if (!authors.length) authors = await lookup.findMissingAuthors({ isbn13: code?.isbn13 || '', title: book.workTitle, workKey: book.workKey }).catch(() => []);
+        if (!authors.length) continue;
+        const data = validateBook({ ...book, author: authors.join(', ') });
+        db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?").run(JSON.stringify(data), id, user.id);
+        fixed.push({ id, title: book.workTitle, author: data.author, book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(id)) });
+      }
+      return { status: 200, body: { fixed, stillUnknown: rows.length - fixed.length } };
+    },
+
     'POST /api/books/bulk': async (req) => {
       const user = requireUser(req);
       const list = (await readJson(req)).books;

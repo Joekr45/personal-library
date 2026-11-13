@@ -96,7 +96,8 @@ export function looksEnglish(title, languages) {
   return true;
 }
 
-export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' } = {}) {
+// extraAuthors(isbn13): optional last-resort author finder (Hardcover, when connected).
+export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '', extraAuthors = null } = {}) {
   const cache = new Map();
 
   const cached = async (key, load) => {
@@ -197,16 +198,64 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
     };
   };
 
+  // ---------- when a scan finds the book but not its author ----------
+  // Tried in order until one gives a name:
+  //  1. the Open Library "work" (many printings only list the author on the work, not the edition)
+  //  2. Open Library's search, looked up by ISBN
+  //  3. Google Books' best guess for the ISBN, if the title matches
+  //  4. Hardcover (when connected in Settings)
+  //  5. a title search, but only if every matching book there has the same author
+  const cleanNames = (names) => [...new Set((names || []).map(n => String(n || '').trim()).filter(n => n && !/^unknown/i.test(n)))].slice(0, 4);
+  const findMissingAuthors = async ({ isbn13, isbn10, title, workKey }) => {
+    const tries = [
+      async () => {
+        if (!/^\/works\/OL\d+W$/.test(workKey || '')) return [];
+        const work = await getJson(`https://openlibrary.org${workKey}.json`);
+        const keys = (work?.authors || []).map(a => a?.author?.key || a?.key).filter(k => /^\/authors\/OL\d+A$/.test(k || '')).slice(0, 3);
+        const found = await Promise.all(keys.map(k => getJson(`https://openlibrary.org${k}.json`)));
+        return found.map(a => a?.name || a?.personal_name);
+      },
+      async () => {
+        const data = await getJson(`https://openlibrary.org/search.json?isbn=${isbn13}&fields=title,author_name&limit=3`);
+        return data?.docs?.[0]?.author_name || [];
+      },
+      async () => {
+        const data = await getJson(googleUrl(`isbn:${isbn10 || isbn13}`));
+        const item = (data?.items || []).find(it => it.volumeInfo?.authors?.length &&
+          (!title || mainTitleKey(it.volumeInfo.title) === mainTitleKey(title)));
+        return item?.volumeInfo?.authors || [];
+      },
+      async () => (extraAuthors ? await extraAuthors(isbn13).catch(() => []) : []),
+      async () => {
+        if (!title) return [];
+        const data = await getJson(`https://openlibrary.org/search.json?title=${encodeURIComponent(title)}&fields=title,author_name&limit=15`);
+        const same = (data?.docs || []).filter(d => mainTitleKey(d.title) === mainTitleKey(title) && d.author_name?.length);
+        const surnames = new Set(same.map(d => authorKey(d.author_name[0])));
+        return same.length > 0 && surnames.size === 1 ? same[0].author_name : [];
+      }
+    ];
+    for (const attempt of tries) {
+      const names = cleanNames(await attempt().catch(() => []));
+      if (names.length) return names;
+    }
+    return [];
+  };
+
   const lookupIsbn = (isbn13, isbn10) => cached(`isbn:${isbn13}`, async () => {
     const [ol, google] = await Promise.all([openLibraryByIsbn(isbn13, isbn10), googleByIsbn(isbn13, isbn10)]);
     if (!ol && !google) return null;
+    let authors = cleanNames(ol?.authors?.length ? ol.authors : google?.authors);
+    if (authors.length === 0) authors = cleanNames(google?.authors);
+    if (authors.length === 0) {
+      authors = await findMissingAuthors({ isbn13, isbn10, title: ol?.title || google?.title, workKey: ol?.workKey });
+    }
     const first = (field) => (ol && ol[field]) || (google && google[field]) || null;
     const seen = new Set();
     const covers = [...(ol?.covers || []), ...(google?.covers || [])].filter(c => !seen.has(c.url) && seen.add(c.url));
     return {
       title: first('title'),
       subtitle: first('subtitle'),
-      authors: (ol?.authors?.length ? ol.authors : google?.authors) || [],
+      authors,
       publisher: first('publisher'),
       publishedDate: first('publishedDate'),
       language: first('language') || 'English',
@@ -671,5 +720,5 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
     return { found: true, available: formats.some(f => f.available), formats };
   });
 
-  return { lookupIsbn, searchBooks, getCoverOptions, searchAuthors, authorWorks, recentByAuthor, mainTitleKey, bookInfo, booksInGenre, ebookPrice, libraryAvailability };
+  return { lookupIsbn, findMissingAuthors, searchBooks, getCoverOptions, searchAuthors, authorWorks, recentByAuthor, mainTitleKey, bookInfo, booksInGenre, ebookPrice, libraryAvailability };
 }
