@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -107,6 +107,14 @@ function migrate(db) {
           joined_at    TEXT NOT NULL DEFAULT (datetime('now')),
           PRIMARY KEY (challenge_id, user_id)
         );
+      `);
+    }
+    if (current < 6) {
+      db.exec(`
+        -- Each account is Family or Friend. Only Family use the family features (shared shelves, challenges).
+        -- Accounts that already existed stay Family, as before.
+        ALTER TABLE users ADD COLUMN circle TEXT NOT NULL DEFAULT 'family';
+        ALTER TABLE invites ADD COLUMN circle TEXT NOT NULL DEFAULT 'family';
       `);
     }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);

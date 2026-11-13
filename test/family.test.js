@@ -23,6 +23,11 @@ before(async () => {
   mom = await register('mom@example.com', 'Mom');
   kid = await register('kid@example.com', 'Kid');
   dad = await register('dad@example.com', 'Dad');
+  // Open sign-ups start as Friend; these tests are about family, so make everyone Family.
+  const everyone = (await (await fetch(`${base}/api/admin/users`, { headers: { Cookie: mom } })).json()).users;
+  for (const u of everyone.filter(u => u.role !== 'Owner')) {
+    await fetch(`${base}/api/admin/circle`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: mom }, body: JSON.stringify({ userId: u.id, circle: 'family' }) });
+  }
   const pillars = (await (await call('POST', '/api/books', { workTitle: 'The Pillars of the Earth', author: 'Ken Follett', workKey: '/works/OL1W', notes: 'private thoughts', editions: [{ isbn: '9780451166890' }] }, mom)).json()).book;
   await call('POST', '/api/books', { workTitle: 'Secret Wishlist Book', author: 'X', owned: false, editions: [] }, mom);
   await call('POST', '/api/books', { workTitle: 'Dad Book', author: 'Y', editions: [] }, dad);

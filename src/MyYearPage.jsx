@@ -144,7 +144,17 @@ export default function MyYearPage({ books, onOpenBook }) {
         </div>
       </section>
 
-      {entries.length > 0 && <YearInReview books={books} year={year} entries={entries} onOpenBook={onOpenBook} />}
+      {entries.length > 0 ? (
+        <YearInReview books={books} year={year} entries={entries} onOpenBook={onOpenBook} />
+      ) : (
+        <section className="p-5 rounded-3xl border-2 border-dashed border-violet-200 bg-violet-50/60 text-center space-y-1" aria-label={`${year} in review`}>
+          <p className="text-sm font-bold text-violet-700">Your {year} in review</p>
+          <p className="text-xs text-slate-600">
+            Finish a book to see your year in review here: your favourite, longest book, busiest month and more, ready to share.
+            Open a book you've read and tap <b>Completed</b> (you can change the finish date under <b>Reading dates</b>).
+          </p>
+        </section>
+      )}
 
       {year === thisYear && <UpNext books={books} onOpenBook={onOpenBook} />}
 

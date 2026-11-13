@@ -226,6 +226,7 @@ function SignupsAndInvites({ mode, onModeChange }) {
   const [invites, setInvites] = useState(null);
   const [note, setNote] = useState('');
   const [days, setDays] = useState(7);
+  const [circle, setCircle] = useState('family');
   const [copied, setCopied] = useState(null);
   const [error, setError] = useState('');
   const load = () => api.listInvites().then(setInvites).catch(err => setError(err.message));
@@ -245,7 +246,7 @@ function SignupsAndInvites({ mode, onModeChange }) {
     e.preventDefault();
     setError('');
     try {
-      const { code } = await api.createInvite(note.trim(), days);
+      const { code } = await api.createInvite(note.trim(), days, circle);
       setNote('');
       await load();
       copy(code);
@@ -278,6 +279,15 @@ function SignupsAndInvites({ mode, onModeChange }) {
       {mode === 'invite' && (
         <div className="space-y-2">
           <form onSubmit={create} className="flex gap-2 flex-wrap">
+            <div className="w-full flex gap-2" role="radiogroup" aria-label="This person is">
+              <span className="self-center text-slate-500">This person is:</span>
+              {[['family', 'Family'], ['friend', 'A friend']].map(([value, label]) => (
+                <button key={value} type="button" role="radio" aria-checked={circle === value} onClick={() => setCircle(value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${circle === value ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Who is it for? (optional)" className={`${inputClass} flex-1 min-w-[9rem]`} />
             <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Valid for" className="px-2 py-2 border border-slate-200 rounded-xl text-xs bg-white">
               <option value={1}>1 day</option>
@@ -286,7 +296,7 @@ function SignupsAndInvites({ mode, onModeChange }) {
             </select>
             <button type="submit" className="px-3 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold">Create invite</button>
           </form>
-          <p className="text-[11px] text-slate-400">Each code works for one person. Creating one copies a ready-to-send message with the link.</p>
+          <p className="text-[11px] text-slate-400">Each code works for one person. Creating one copies a ready-to-send message with the link. Friends get their own library but not the family features (Family Shelves, Challenges). You can change this later below.</p>
           {error && <p className="text-red-600">{error}</p>}
           {invites && invites.length > 0 && (
             <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl">
@@ -294,6 +304,7 @@ function SignupsAndInvites({ mode, onModeChange }) {
                 <li key={inv.code} className="p-2.5 flex items-center gap-2">
                   <code className="font-mono font-bold text-slate-900 tracking-wider">{inv.code}</code>
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${chip[inv.status]}`}>{inv.status === 'used' ? `used by ${inv.usedBy || '?'}` : inv.status}</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${inv.circle === 'friend' ? 'bg-sky-50 text-sky-700' : 'bg-orange-50 text-orange-700'}`}>{inv.circle === 'friend' ? 'Friend' : 'Family'}</span>
                   <span className="flex-1 min-w-0 truncate text-[11px] text-slate-400">{inv.note || ''}</span>
                   {inv.status === 'active' && (
                     <>
@@ -355,7 +366,8 @@ function OwnerSection({ currentUserId }) {
 
   return (
     <>
-      <Section icon={Users} title="Family accounts">
+      <Section icon={Users} title="Accounts: family and friends">
+        <p className="text-slate-500"><b>Family</b> can share shelves and join Family Challenges. <b>Friends</b> have their own library but don't see or appear in the family features.</p>
         {error && <p className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl">{error}</p>}
         {!data ? (
           <p className="text-slate-400 flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Loading…</p>
@@ -371,6 +383,16 @@ function OwnerSection({ currentUserId }) {
                     <div className="font-bold text-slate-900 truncate">{u.displayName} {u.role === 'Owner' && <span className="text-[10px] text-orange-600">(Owner)</span>}</div>
                     <div className="text-[11px] text-slate-400 truncate">{u.email} · {u.bookCount} books</div>
                   </div>
+                  {u.role === 'Owner' ? (
+                    <span className="px-2 py-1 rounded-lg text-[11px] font-semibold bg-orange-50 text-orange-700">Family</span>
+                  ) : (
+                    <select value={u.circle} disabled={busy} aria-label={`${u.displayName} is`}
+                      onChange={(e) => act(() => api.setCircle(u.id, e.target.value))}
+                      className={`px-2 py-1.5 border rounded-lg text-[11px] font-semibold ${u.circle === 'friend' ? 'bg-sky-50 border-sky-200 text-sky-700' : 'bg-orange-50 border-orange-200 text-orange-700'}`}>
+                      <option value="family">Family</option>
+                      <option value="friend">Friend</option>
+                    </select>
+                  )}
                   {u.id !== currentUserId && (
                     <div className="flex gap-1.5">
                       <button onClick={() => resetPassword(u)} disabled={busy} className={buttonClass} title="Set a new password"><KeyRound className="w-3.5 h-3.5" /><span className="hidden sm:inline">Password</span></button>
@@ -449,7 +471,7 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
             <p className="text-slate-500">Download all your books as a spreadsheet (opens in Excel, Google Sheets or Numbers), or bring in your books from Goodreads.</p>
             <a href="/api/export/books.csv" className={buttonClass}><Download className="w-3.5 h-3.5" /> Download my books (spreadsheet)</a>
             <button onClick={onImport} className={buttonClass}><Upload className="w-3.5 h-3.5" /> Import from Goodreads</button>
-            <SharingToggle onChange={onFamilyChange} />
+            {currentUser?.circle !== 'friend' && <SharingToggle onChange={onFamilyChange} />}
           </Section>
           <AppearanceSection />
           <LibrarySection prefs={prefs} onPrefsChange={onPrefsChange} />

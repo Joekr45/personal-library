@@ -117,7 +117,11 @@ export default function App() {
     setNewReleases(null);
     api.newReleases().then(setNewReleases).catch(err => setNewReleases({ error: err.message, releases: [] }));
   };
-  const loadFamily = () => api.family().then(setFamily).catch(() => setFamily({ sharing: false, members: [] }));
+  // Friends (not Family) don't use the family features: shared shelves and challenges.
+  const isFamily = currentUser?.circle !== 'friend';
+  const loadFamily = () => (currentUser?.circle === 'friend'
+    ? Promise.resolve(setFamily({ sharing: false, members: [] }))
+    : api.family().then(setFamily).catch(() => setFamily({ sharing: false, members: [] })));
   const booksRef = useRef(books);
   booksRef.current = books;
 
@@ -969,6 +973,7 @@ export default function App() {
               </div>
             </button>
 
+            {isFamily && (<>
             <button
               onClick={() => { setActiveSection('family'); setCurrentPage(1); loadFamily(); }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
@@ -992,6 +997,7 @@ export default function App() {
                 <span>Family Challenges</span>
               </div>
             </button>
+            </>)}
 
             <button
               onClick={() => { setActiveSection('quotes'); setCurrentPage(1); }}
@@ -1158,11 +1164,11 @@ export default function App() {
             />
           )}
 
-          {activeSection === 'family' && (
+          {activeSection === 'family' && isFamily && (
             <FamilyPage family={family} myBooks={books} onOpenSettings={() => setIsSettingsOpen(true)} onRefresh={loadFamily} />
           )}
 
-          {activeSection === 'challenges' && <ChallengesPage />}
+          {activeSection === 'challenges' && isFamily && <ChallengesPage />}
 
           {activeSection === 'quotes' && (
             <QuotesPage books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} />
