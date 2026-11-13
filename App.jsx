@@ -90,6 +90,8 @@ import ListsPage from './src/ListsPage.jsx';
 import ReadingLogPage from './src/ReadingLogPage.jsx';
 import GiftsPage from './src/GiftsPage.jsx';
 import WishlistAlerts from './src/WishlistAlerts.jsx';
+import SidebarMenu from './src/SidebarMenu.jsx';
+import HomePage from './src/HomePage.jsx';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -133,6 +135,7 @@ export default function App() {
   const [prefs, setPrefs] = useState({}); // e.g. { libbyLibrary: 'nypl' }
   const [inboxCount, setInboxCount] = useState(0); // books recommended to you, not answered yet
   const [navTick, setNavTick] = useState(0); // changes on every menu tap, so pages reload fresh
+  const [bookTab, setBookTab] = useState('reading'); // which tab of the book page is showing (kept between books)
   const loadNewReleases = () => {
     setNewReleases(null);
     api.newReleases().then(setNewReleases).catch(err => setNewReleases({ error: err.message, releases: [] }));
@@ -293,7 +296,7 @@ export default function App() {
   };
 
   // View state
-  const [activeSection, setActiveSection] = useState('all');
+  const [activeSection, setActiveSection] = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('grid');
 
@@ -385,7 +388,7 @@ export default function App() {
     setSelectedBook(null);
     setIsScanModalOpen(false);
     setIsManualAddOpen(false);
-    setActiveSection('all');
+    setActiveSection('home');
     setSearchQuery('');
   };
 
@@ -765,7 +768,7 @@ export default function App() {
 
       {/* SIDEBAR */}
       <aside
-        onClick={(e) => { if (e.target.closest('button')) { setIsSidebarOpen(false); setNavTick(t => t + 1); } }}
+        onClick={(e) => { if (e.target.closest('button') && !e.target.closest('[data-keep-open]')) { setIsSidebarOpen(false); setNavTick(t => t + 1); } }}
         className={`fixed inset-y-0 left-0 z-40 md:static md:z-20 md:translate-x-0 transform transition-transform duration-200 ${
           isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         } w-64 flex-shrink-0 bg-[#f4f4f7] md:bg-[#f4f4f7]/95 backdrop-blur-2xl border-r border-slate-200/80 flex flex-col justify-between p-4`}
@@ -815,335 +818,16 @@ export default function App() {
             </button>
           </div>
 
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">My Books</p>
-
-            <button
-              onClick={() => { setActiveSection('all'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'all'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Library className="w-4 h-4" />
-                <span>All Books</span>
-              </div>
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${activeSection === 'all' ? 'bg-orange-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {counts.all}
-              </span>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('reading'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'reading'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Clock className="w-4 h-4" />
-                <span>Reading Now</span>
-              </div>
-              <span className={`text-[11px] font-normal ${activeSection === 'reading' ? 'text-orange-100' : 'text-slate-400'}`}>
-                {counts.reading}
-              </span>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('unread'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'unread'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <BookMarked className="w-4 h-4" />
-                <span>Want to Read</span>
-              </div>
-              <span className={`text-[11px] font-normal ${activeSection === 'unread' ? 'text-orange-100' : 'text-slate-400'}`}>
-                {counts.unread}
-              </span>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('completed'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'completed'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <BookmarkCheck className="w-4 h-4" />
-                <span>Finished</span>
-              </div>
-              <span className={`text-[11px] font-normal ${activeSection === 'completed' ? 'text-orange-100' : 'text-slate-400'}`}>
-                {counts.completed}
-              </span>
-            </button>
-
-            {counts.dnf > 0 && (
-              <button
-                onClick={() => { setActiveSection('dnf'); setCurrentPage(1); }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                  activeSection === 'dnf' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <CircleSlash className="w-4 h-4" />
-                  <span>Did Not Finish</span>
-                </div>
-                <span className={`text-[11px] font-normal ${activeSection === 'dnf' ? 'text-orange-100' : 'text-slate-400'}`}>{counts.dnf}</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => { setActiveSection('wishlist'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'wishlist'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Heart className="w-4 h-4" />
-                <span>Missing / Wishlist</span>
-              </div>
-              <span className={`text-[11px] font-normal ${activeSection === 'wishlist' ? 'text-orange-100' : 'text-slate-400'}`}>
-                {counts.wishlist}
-              </span>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('lent'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'lent' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <HandHelping className="w-4 h-4" />
-                <span>Lent Out</span>
-              </div>
-              {overdue.length > 0 ? (
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-500 text-white" title={`${overdue.length} overdue`}>{counts.lent}</span>
-              ) : (
-                <span className={`text-[11px] font-normal ${activeSection === 'lent' ? 'text-orange-100' : 'text-slate-400'}`}>
-                  {counts.lent}
-                </span>
-              )}
-            </button>
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">My Shelves</p>
-            {myShelves.length === 0 && (
-              <p className="text-[11px] text-slate-400 px-3 leading-snug">Make your own shelves (e.g. “Beach reads”) from any book's page.</p>
-            )}
-            {myShelves.map(s => (
-              <button
-                key={s.name}
-                onClick={() => { setActiveSection(`shelf:${s.name}`); setCurrentPage(1); }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                  activeShelf === s.name ? 'bg-violet-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Tags className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">{s.name}</span>
-                </div>
-                <span className={`text-[11px] font-normal ${activeShelf === s.name ? 'text-violet-100' : 'text-slate-400'}`}>{s.count}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2 mb-1">Explore</p>
-
-            <button
-              onClick={() => { setActiveSection('new'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'new' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Sparkles className="w-4 h-4" />
-                <span>New for You</span>
-              </div>
-              {newReleases?.releases?.length > 0 && (
-                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${activeSection === 'new' ? 'bg-orange-600 text-white' : 'bg-rose-500 text-white'}`}>
-                  {newReleases.releases.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => {
-                setActiveSection('authors');
-                setCurrentPage(1);
-              }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'authors'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Users className="w-4 h-4" />
-                <span>Authors & Lookup</span>
-              </div>
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${activeSection === 'authors' ? 'bg-orange-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {counts.authors}
-              </span>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('series'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'series'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Layers className="w-4 h-4" />
-                <span>Series Collections</span>
-              </div>
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${activeSection === 'series' ? 'bg-orange-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                {counts.series}
-              </span>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('year'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'year'
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Trophy className="w-4 h-4" />
-                <span>My Year</span>
-              </div>
-            </button>
-
-            {isFamily && (<>
-            <button
-              onClick={() => { setActiveSection('family'); setCurrentPage(1); loadFamily(); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'family' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Users className="w-4 h-4" />
-                <span>Family Shelves</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('challenges'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'challenges' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Flag className="w-4 h-4" />
-                <span>Family Challenges</span>
-              </div>
-            </button>
-            </>)}
-
-            <button
-              onClick={() => { setActiveSection('activity'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'activity' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Activity className="w-4 h-4" />
-                <span>Activity</span>
-              </div>
-              {inboxCount > 0 && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-500 text-white" title="Books recommended to you">{inboxCount}</span>}
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('discover'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'discover' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Compass className="w-4 h-4" />
-                <span>Discover</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('clubs'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'clubs' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <MessagesSquare className="w-4 h-4" />
-                <span>Book Clubs</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('lists'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'lists' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <ListOrdered className="w-4 h-4" />
-                <span>Lists</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setActiveSection('readinglog'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'readinglog' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Timer className="w-4 h-4" />
-                <span>Reading Log</span>
-              </div>
-            </button>
-            {isFamily && (
-            <button
-              onClick={() => { setActiveSection('gifts'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'gifts' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Gift className="w-4 h-4" />
-                <span>Gift Ideas</span>
-              </div>
-            </button>
-            )}
-
-            <button
-              onClick={() => { setActiveSection('quotes'); setCurrentPage(1); }}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                activeSection === 'quotes' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Quote className="w-4 h-4" />
-                <span>My Quotes</span>
-              </div>
-              <span className={`text-[11px] font-normal ${activeSection === 'quotes' ? 'text-orange-100' : 'text-slate-400'}`}>{quoteCount}</span>
-            </button>
-          </div>
+          <SidebarMenu
+            active={activeSection}
+            onSelect={(key) => { setActiveSection(key); setCurrentPage(1); if (key === 'family') loadFamily(); }}
+            counts={{ ...counts, quotes: quoteCount }}
+            alerts={{ overdue: overdue.length, inbox: inboxCount, newReleases: newReleases?.releases?.length || 0 }}
+            shelves={myShelves}
+            activeShelf={activeShelf}
+            isFamily={isFamily}
+            hidden={prefs.hiddenMenu || []}
+          />
         </div>
 
         <div className="mt-3 flex-shrink-0 bg-white/80 border border-slate-200/80 p-3 rounded-2xl shadow-2xs">
@@ -1174,7 +858,7 @@ export default function App() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); if (activeSection === 'home') setActiveSection('all'); }}
               placeholder="Search your library…"
               className="w-full pl-9 pr-8 py-2 bg-slate-100 hover:bg-slate-200/50 focus:bg-white text-xs text-slate-900 placeholder-slate-400 rounded-xl border border-transparent focus:border-slate-300 focus:outline-none transition-all shadow-2xs"
             />
@@ -1300,6 +984,20 @@ export default function App() {
             <FamilyPage family={family} myBooks={books} onOpenSettings={() => setIsSettingsOpen(true)} onRefresh={loadFamily} />
           )}
 
+          {activeSection === 'home' && (
+            <HomePage
+              key={navTick}
+              books={books}
+              currentUser={currentUser}
+              overdue={overdue}
+              inboxCount={inboxCount}
+              newCount={newReleases?.releases?.length || 0}
+              onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }}
+              onGo={(key) => { setActiveSection(key); setCurrentPage(1); }}
+              onScan={() => { setScannerInitialMode(null); setIsScanModalOpen(true); }}
+              BookCover={(book) => <AppleBookCover book={book} />}
+            />
+          )}
           {activeSection === 'challenges' && isFamily && <ChallengesPage key={navTick} />}
           {activeSection === 'activity' && (
             <ActivityPage key={navTick} onAddToWishlist={addRefToWishlist} onOpenSettings={() => setIsSettingsOpen(true)} onInboxChange={setInboxCount} />
@@ -1330,7 +1028,7 @@ export default function App() {
             </div>
           )}
 
-          {!['authors', 'series', 'year', 'family', 'new', 'challenges', 'quotes', 'activity', 'discover', 'clubs', 'lists', 'readinglog', 'gifts'].includes(activeSection) && (
+          {!['home', 'authors', 'series', 'year', 'family', 'new', 'challenges', 'quotes', 'activity', 'discover', 'clubs', 'lists', 'readinglog', 'gifts'].includes(activeSection) && (
             <div className="space-y-6">
               <div className="flex items-baseline justify-between">
                 <div>
@@ -1639,99 +1337,111 @@ export default function App() {
                 </div>
               </div>
 
-              {selectedBook.readingStatus === 'Reading' && (
-                <ProgressPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+              {/* The book's boxes, grouped into tabs so the page isn't one long scroll. */}
+              <div className="flex bg-slate-100 p-1 rounded-2xl text-xs gap-1 sticky top-0 z-10" role="tablist" aria-label="Book sections">
+                {[['reading', 'My Reading'], ['about', 'About'], ['notes', 'Review & Quotes'], ['more', 'Shelves & More']].map(([id, label]) => (
+                  <button key={id} role="tab" aria-selected={bookTab === id} onClick={() => setBookTab(id)}
+                    className={`flex-1 py-2 rounded-xl font-semibold transition-all ${bookTab === id ? 'bg-white shadow-xs text-orange-600' : 'text-slate-500 hover:text-slate-900'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {bookTab === 'reading' && (
+                <>
+                  {selectedBook.readingStatus === 'Reading' && <ProgressPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />}
+                  <ReadingPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+                  <MoodPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+                </>
               )}
 
-              <BookInfoPanel book={selectedBook} onBookSaved={onBookSaved} />
+              {/* Kept mounted (just hidden) so book info is fetched the first time any book is opened. */}
+              <div className={bookTab === 'about' ? 'space-y-6' : 'hidden'}>
+                <BookInfoPanel book={selectedBook} onBookSaved={onBookSaved} />
 
-              <ReadingPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
-
-              <ReviewPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
-
-              <MoodPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
-
-              <QuotesPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
-
-              <ShelvesPanel book={selectedBook} shelves={myShelves} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
-
-              {selectedBook.owned !== false && (
-                <CollectorPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
-              )}
-
-              <FindItLinks book={selectedBook} prefs={prefs} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
-
-              <SharePanel book={selectedBook} />
-
-              {selectedBook.owned !== false && (
-                <LendPanel book={selectedBook} fromName={currentUser.displayName} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
-              )}
-
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Globe2 className="w-4 h-4 text-orange-500" />
-                    <span className="text-xs font-bold text-slate-800">Physical Edition & Shelf Data</span>
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Globe2 className="w-4 h-4 text-orange-500" />
+                      <span className="text-xs font-bold text-slate-800">Physical Edition & Shelf Data</span>
+                    </div>
+                    {selectedBook.editions[activeEditionIndex]?.isbn && selectedBook.editions[activeEditionIndex].isbn !== 'Pending Scan' && (
+                      <a
+                        href={`https://openlibrary.org/isbn/${selectedBook.editions[activeEditionIndex]?.isbn}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-orange-600 font-semibold hover:underline flex items-center gap-1"
+                      >
+                        <span>View on Open Library</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
                   </div>
-                  {selectedBook.editions[activeEditionIndex]?.isbn && selectedBook.editions[activeEditionIndex].isbn !== 'Pending Scan' && (
-                    <a
-                      href={`https://openlibrary.org/isbn/${selectedBook.editions[activeEditionIndex]?.isbn}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] text-orange-600 font-semibold hover:underline flex items-center gap-1"
-                    >
-                      <span>View on Open Library</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-                </div>
 
-                {selectedBook.editions[activeEditionIndex] && (
-                  <div className="grid grid-cols-2 gap-3 text-xs bg-white p-3 rounded-xl border border-slate-200/80">
-                    <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">ISBN-13 Barcode</span>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="font-mono text-slate-800 font-semibold">
-                          {selectedBook.editions[activeEditionIndex].isbn}
-                        </span>
-                        <button
-                          onClick={() => {
-                            const newIsbn = prompt('Enter exact ISBN (e.g. 9780446610032):', selectedBook.editions[activeEditionIndex].isbn === 'Pending Scan' ? '' : selectedBook.editions[activeEditionIndex].isbn);
-                            if (newIsbn && newIsbn.trim()) {
-                              const clean = newIsbn.trim().replace(/[^0-9X]/gi, '');
-                              const newCoverUrl = `https://covers.openlibrary.org/b/isbn/${clean}-L.jpg`;
-                              const updatedEditions = [...selectedBook.editions];
-                              updatedEditions[activeEditionIndex] = { ...updatedEditions[activeEditionIndex], isbn: clean };
-                              // Only replace the cover if the book was using the automatic one for the old ISBN
-                              const oldIsbn = selectedBook.editions[activeEditionIndex].isbn;
-                              const usesAutoCover = !selectedBook.customCoverUrl || selectedBook.customCoverUrl.includes(`/isbn/${oldIsbn}-`);
-                              updateBook(selectedBook.id, {
-                                editions: updatedEditions,
-                                ...(usesAutoCover ? { customCoverUrl: newCoverUrl } : {})
-                              });
-                            }
-                          }}
-                          className="text-[10px] text-orange-600 hover:text-orange-700 font-medium underline"
-                        >
-                          Edit
-                        </button>
+                  {selectedBook.editions[activeEditionIndex] && (
+                    <div className="grid grid-cols-2 gap-3 text-xs bg-white p-3 rounded-xl border border-slate-200/80">
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">ISBN-13 Barcode</span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="font-mono text-slate-800 font-semibold">
+                            {selectedBook.editions[activeEditionIndex].isbn}
+                          </span>
+                          <button
+                            onClick={() => {
+                              const newIsbn = prompt('Enter exact ISBN (e.g. 9780446610032):', selectedBook.editions[activeEditionIndex].isbn === 'Pending Scan' ? '' : selectedBook.editions[activeEditionIndex].isbn);
+                              if (newIsbn && newIsbn.trim()) {
+                                const clean = newIsbn.trim().replace(/[^0-9X]/gi, '');
+                                const newCoverUrl = `https://covers.openlibrary.org/b/isbn/${clean}-L.jpg`;
+                                const updatedEditions = [...selectedBook.editions];
+                                updatedEditions[activeEditionIndex] = { ...updatedEditions[activeEditionIndex], isbn: clean };
+                                // Only replace the cover if the book was using the automatic one for the old ISBN
+                                const oldIsbn = selectedBook.editions[activeEditionIndex].isbn;
+                                const usesAutoCover = !selectedBook.customCoverUrl || selectedBook.customCoverUrl.includes(`/isbn/${oldIsbn}-`);
+                                updateBook(selectedBook.id, {
+                                  editions: updatedEditions,
+                                  ...(usesAutoCover ? { customCoverUrl: newCoverUrl } : {})
+                                });
+                              }
+                            }}
+                            className="text-[10px] text-orange-600 hover:text-orange-700 font-medium underline"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Format</span>
+                        <span className="text-slate-800 font-medium">{selectedBook.editions[activeEditionIndex].format}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Shelf Location</span>
+                        <span className="text-slate-800 font-medium">{selectedBook.shelfLocation || 'Living Room Shelf'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Language</span>
+                        <span className="text-slate-800 font-medium">{selectedBook.editions[activeEditionIndex].language}</span>
                       </div>
                     </div>
-                    <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">Format</span>
-                      <span className="text-slate-800 font-medium">{selectedBook.editions[activeEditionIndex].format}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">Shelf Location</span>
-                      <span className="text-slate-800 font-medium">{selectedBook.shelfLocation || 'Living Room Shelf'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-semibold">Language</span>
-                      <span className="text-slate-800 font-medium">{selectedBook.editions[activeEditionIndex].language}</span>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
+
+              {bookTab === 'notes' && (
+                <>
+                  <ReviewPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+                  <QuotesPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+                </>
+              )}
+
+              {bookTab === 'more' && (
+                <>
+                  <ShelvesPanel book={selectedBook} shelves={myShelves} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+                  {selectedBook.owned !== false && <LendPanel book={selectedBook} fromName={currentUser.displayName} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />}
+                  {selectedBook.owned !== false && <CollectorPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />}
+                  <FindItLinks book={selectedBook} prefs={prefs} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+                  <SharePanel book={selectedBook} />
+                </>
+              )}
             </div>
           </div>
         </div>

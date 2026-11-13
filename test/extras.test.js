@@ -122,3 +122,10 @@ test('upgrading an older database adds the challenge tables and keeps books', ()
   again.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('menu preference: hidden menu items are kept per person and tidied', async () => {
+  const saved = await call('PUT', '/api/me/prefs', { hiddenMenu: ['clubs', 'gifts', 'clubs', 'BAD KEY!', 42] }, dad);
+  assert.deepEqual(saved.body.prefs.hiddenMenu, ['clubs', 'gifts', '42'].filter(k => /^[a-z]{2,20}$/.test(k)));
+  assert.deepEqual((await call('GET', '/api/me/prefs', undefined, dad)).body.prefs.hiddenMenu, ['clubs', 'gifts']);
+  assert.equal((await call('GET', '/api/me/prefs', undefined, kid)).body.prefs.hiddenMenu, undefined);
+});

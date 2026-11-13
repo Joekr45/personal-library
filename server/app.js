@@ -797,6 +797,11 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         const key = cleanText(body.libbyLibrary, 60).toLowerCase().replace(/[^a-z0-9-]/g, '');
         if (key) prefs.libbyLibrary = key; else delete prefs.libbyLibrary;
       }
+      if (body.hiddenMenu !== undefined) {
+        // Menu items this person chose to hide (Settings → Menu).
+        prefs.hiddenMenu = [...new Set((Array.isArray(body.hiddenMenu) ? body.hiddenMenu : [])
+          .map(k => String(k)).filter(k => /^[a-z]{2,20}$/.test(k)))].slice(0, 40);
+      }
       setSetting(`prefs:${user.id}`, JSON.stringify(prefs));
       return { status: 200, body: { prefs } };
     },

@@ -25,6 +25,13 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **My Year** (menu): books finished this year, a **yearly goal** with "ahead/behind schedule", books per month, pages, average rating, top author, and **Up next in your series**.
 - Book lists have a **sort menu** (title, author, recently added, recently finished, rating, year published — remembered on each device) and **filters** (shelf, language, format, rating).
 
+## Finding your way around
+
+- **Home** (first screen): what you're reading (with progress), today's reading minutes with quick +10/+20/+30 buttons and your streak, your yearly goal, anything that needs you (recommendations, overdue loans, wishlist books available or on sale, new books from your authors), and recent activity from family & friends. Typing in the search box jumps to All Books.
+- **Menu sections** (My Books, My Shelves, My Reading, People, Discover) fold and unfold with a tap on their title; each device remembers which are folded. A folded section shows a red dot if something inside needs you.
+- **Settings → Menu**: untick items you don't use to hide them (per person, on every device).
+- **Book page tabs**: My Reading (progress, dates, rating, notes, mood), About (description, genres, people you know, edition details), Review & Quotes, and Shelves & More (shelves, lending, collector details, borrow/buy, recommend, lists). The app remembers the last tab you used.
+
 ## About each book
 
 - **About this book** (book page): the description, genres and average rating from other readers are filled in from Open Library and Google Books the first time you open a book (or all at once: **Settings → My books → Fill in descriptions & genres**). Below it, ratings and shared reviews from people you know.

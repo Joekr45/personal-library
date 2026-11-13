@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Settings, CheckCircle2, RefreshCw, ExternalLink, AlertTriangle, Download, KeyRound, Users, Database,
-  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info
+  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info, Menu
 } from 'lucide-react';
+import { HIDEABLE } from './SidebarMenu.jsx';
 import { api } from './api.js';
 import { getTheme, setTheme } from './theme.js';
 
@@ -52,6 +53,36 @@ function FillInfoButton({ books, onBookSaved }) {
   }
   if (todo.length === 0) return null;
   return <button onClick={run} className={buttonClass}><Info className="w-3.5 h-3.5" /> Fill in descriptions &amp; genres for {todo.length} book{todo.length === 1 ? '' : 's'}</button>;
+}
+
+// ---------- Menu: choose which items you see ----------
+function MenuSection({ prefs, onPrefsChange, isFamily }) {
+  const [hiddenList, setHiddenList] = useState(prefs?.hiddenMenu || []);
+  useEffect(() => { setHiddenList(prefs?.hiddenMenu || []); }, [prefs?.hiddenMenu]);
+  const hidden = new Set(hiddenList);
+  const [error, setError] = useState('');
+  const toggle = async (key) => {
+    const next = new Set(hidden);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    setHiddenList([...next]); // show the change right away
+    setError('');
+    try { onPrefsChange?.(await api.setPrefs({ hiddenMenu: [...next] })); } catch (err) { setError(err.message); setHiddenList(prefs?.hiddenMenu || []); }
+  };
+  const items = [...HIDEABLE.filter(i => !i.familyOnly || isFamily), { key: 'shelves', label: 'My Shelves (whole section)', groupTitle: 'My Shelves' }];
+  return (
+    <Section icon={Menu} title="Menu">
+      <p className="text-slate-500">Untick anything you don't use to hide it from your menu. This is just for you, on every device. You can bring things back any time.</p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+        {items.map(i => (
+          <label key={i.key} className="flex items-center gap-2 py-0.5 text-slate-700">
+            <input type="checkbox" checked={!hidden.has(i.key)} onChange={() => toggle(i.key)} className="accent-orange-500" />
+            {i.label}
+          </label>
+        ))}
+      </div>
+      {error && <p className="text-red-700">{error}</p>}
+    </Section>
+  );
 }
 
 // ---------- Appearance ----------
@@ -511,6 +542,7 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
             {currentUser?.circle !== 'friend' && <SharingToggle onChange={onFamilyChange} />}
           </Section>
           <ActivitySection />
+          <MenuSection prefs={prefs} onPrefsChange={onPrefsChange} isFamily={currentUser?.circle !== 'friend'} />
           <AppearanceSection />
           <LibrarySection prefs={prefs} onPrefsChange={onPrefsChange} />
           <InstallSection />
