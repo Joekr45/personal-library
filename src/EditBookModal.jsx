@@ -5,7 +5,7 @@ import { LANGUAGES } from './languages.js';
 const FORMATS = ['Hardcover', 'Paperback', 'Mass Market Paperback', 'Special Collector Edition', 'Physical Print'];
 
 // A form for changing a book's details after it has been added.
-export default function EditBookModal({ book, onCancel, onSave }) {
+export default function EditBookModal({ places, book, onCancel, onSave }) {
   const firstEdition = book.editions?.[0] || {};
   const [title, setTitle] = useState(book.workTitle || '');
   const [author, setAuthor] = useState(book.author || '');
@@ -102,7 +102,8 @@ export default function EditBookModal({ book, onCancel, onSave }) {
             </div>
             <div>
               <label className={labelClass} htmlFor="edit-shelf">Shelf Location</label>
-              <input id="edit-shelf" type="text" value={shelf} onChange={(e) => setShelf(e.target.value)} placeholder="e.g. Study" className={inputClass} />
+              <input id="edit-shelf" type="text" list="known-places" value={shelf} onChange={(e) => setShelf(e.target.value)} placeholder="e.g. Living room / Tall bookcase / Shelf 3" className={inputClass} />
+              <datalist id="known-places">{(places || []).map(p => <option key={p} value={p} />)}</datalist>
             </div>
           </div>
 

@@ -269,6 +269,13 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     if (data.pace !== undefined) data.pace = ['slow', 'medium', 'fast'].includes(data.pace) ? data.pace : null;
     if (data.warnings !== undefined) data.warnings = cleanList(data.warnings, 60, 20);
     if (data.dnfOn !== undefined) data.dnfOn = date(data.dnfOn);
+    // How you're reading it (print, ebook or audiobook), and audiobook listening time in minutes.
+    if (data.readFormat !== undefined) data.readFormat = ['print', 'ebook', 'audio'].includes(data.readFormat) ? data.readFormat : null;
+    for (const field of ['audioMinutes', 'audioLength']) {
+      if (data[field] === undefined) continue;
+      const m = Math.round(Number(data[field]));
+      data[field] = data[field] !== null && data[field] !== '' && m >= 0 && m <= 100000 ? m : null;
+    }
     if (data.targetPrice !== undefined) {
       const t = Math.round(Number(data.targetPrice) * 100) / 100;
       data.targetPrice = data.targetPrice !== null && data.targetPrice !== '' && t > 0 && t < 10000 ? t : null;
@@ -713,6 +720,33 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     },
 
     // Add many books at once (Goodreads import). Invalid entries are skipped and counted.
+    // The next book in a series after one you just finished, if you don't have it yet: ?bookId=
+    'GET /api/series/next': async (req) => {
+      const user = requireUser(req);
+      const bookId = new URL(req.url, 'http://localhost').searchParams.get('bookId') || '';
+      const row = db.prepare('SELECT data FROM books WHERE id = ? AND user_id = ?').get(bookId, user.id);
+      if (!row) throw new HttpError(404, 'Book not found.');
+      const book = JSON.parse(row.data);
+      const position = Number(book.seriesNumber);
+      if (!book.series || !Number.isFinite(position)) return { status: 200, body: { next: null } };
+      const mine = db.prepare('SELECT data FROM books WHERE user_id = ?').all(user.id).map(r => JSON.parse(r.data));
+      const sameSeries = (b) => (book.hardcoverSeriesId && b.hardcoverSeriesId === book.hardcoverSeriesId) ||
+        String(b.series || '').toLowerCase() === String(book.series).toLowerCase();
+      const haveNumbers = new Set(mine.filter(sameSeries).map(b => Number(b.seriesNumber)));
+      const haveTitles = new Set(mine.map(b => lookup.mainTitleKey(b.workTitle)));
+      // Already have the next one? Nothing to suggest.
+      if (haveNumbers.has(Math.floor(position) + 1)) return { status: 200, body: { next: null } };
+      if (!book.hardcoverSeriesId || !getSetting('hardcover_token')) return { status: 200, body: { next: null, needsHardcover: true } };
+      let series = null;
+      try { series = await hardcover.seriesBooks(book.hardcoverSeriesId); } catch { series = null; }
+      const next = (series?.books || []).find(b => b.position > position && !haveNumbers.has(b.position) && !haveTitles.has(lookup.mainTitleKey(b.title)));
+      if (!next) return { status: 200, body: { next: null } };
+      return {
+        status: 200,
+        body: { next: { title: next.title, author: book.author, cover: next.cover, series: series.name || book.series, seriesNumber: next.position, hardcoverSeriesId: book.hardcoverSeriesId, year: next.year } }
+      };
+    },
+
     // Try again to find the author of books saved as "Unknown Author".
     'POST /api/books/fix-authors': async (req) => {
       const user = requireUser(req);

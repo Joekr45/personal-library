@@ -46,6 +46,17 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **Settings → Menu**: untick items you don't use to hide them (per person, on every device).
 - **Book page tabs**: My Reading (progress, dates, rating, notes, mood), About (description, genres, people you know, edition details), Review & Quotes, and Shelves & More (shelves, lending, collector details, borrow/buy, recommend, lists). The app remembers the last tab you used.
 
+## Print, ebook or audiobook
+
+- On a book's **My Reading** tab, choose **Reading it as: Print / Ebook / Audiobook**.
+- Audiobooks get **My listening** instead of pages: time listened out of the total length, +15/+30/+60 min buttons, time left, and "I finished it!".
+- **My Year → Reading stats** shows how you read (print/ebook/audiobook) and hours of audiobooks. Filters have **Read as**.
+
+## Series and shelves
+
+- **Next in the series**: finish a book that's part of a series and, if you don't have the next one, the app offers it (cover, number, year) with **Add to wishlist**. Uses Hardcover (Settings).
+- **Where Is It?** (menu, My Books): your rooms, bookcases and shelves with the books on each. Give a book a location with levels separated by "/", e.g. `Living room / Tall bookcase / Shelf 3` (Edit suggests places you've used; Select → Location sets many at once). Search a title to see exactly where it is; the pencil renames a room or bookcase everywhere.
+
 ## About each book
 
 - **About this book** (book page): the description, genres and average rating from other readers are filled in from Open Library and Google Books the first time you open a book (or all at once: **Settings → My books → Fill in descriptions & genres**). Below it, ratings and shared reviews from people you know.

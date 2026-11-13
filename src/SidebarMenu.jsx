@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Home, Library, BookOpen, BookMarked, BookmarkCheck, CircleSlash, Heart, HandHelping, Tags, Trophy, Timer, Quote, Flag,
-  Activity, MessagesSquare, ListOrdered, Users, Gift, Sparkles, Compass, Layers, ChevronDown, ChevronRight
+  Activity, MessagesSquare, ListOrdered, Users, Gift, Sparkles, Compass, Layers, ChevronDown, ChevronRight, MapPin
 } from 'lucide-react';
 
 // Everything in the menu, in order, grouped into sections that open and close.
@@ -15,7 +15,8 @@ export const MENU = [
     { key: 'completed', label: 'Finished', icon: BookmarkCheck, count: 'completed' },
     { key: 'dnf', label: 'Did Not Finish', icon: CircleSlash, count: 'dnf', onlyWithCount: true },
     { key: 'wishlist', label: 'Missing / Wishlist', icon: Heart, count: 'wishlist' },
-    { key: 'lent', label: 'Lent Out', icon: HandHelping, count: 'lent', alert: 'overdue' }
+    { key: 'lent', label: 'Lent Out', icon: HandHelping, count: 'lent', alert: 'overdue' },
+    { key: 'places', label: 'Where Is It?', icon: MapPin }
   ] },
   { group: 'shelves', title: 'My Shelves', shelves: true, items: [] },
   { group: 'reading', title: 'My Reading', items: [

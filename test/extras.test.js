@@ -129,3 +129,12 @@ test('menu preference: hidden menu items are kept per person and tidied', async 
   assert.deepEqual((await call('GET', '/api/me/prefs', undefined, dad)).body.prefs.hiddenMenu, ['clubs', 'gifts']);
   assert.equal((await call('GET', '/api/me/prefs', undefined, kid)).body.prefs.hiddenMenu, undefined);
 });
+
+test('reading format and audiobook time are cleaned up', async () => {
+  const r = await call('POST', '/api/books', { workTitle: 'Audio', author: 'A', editions: [], readFormat: 'audio', audioMinutes: '95.4', audioLength: -3 }, dad);
+  assert.equal(r.body.book.readFormat, 'audio');
+  assert.equal(r.body.book.audioMinutes, 95);
+  assert.equal(r.body.book.audioLength, null);
+  const u = await call('PUT', `/api/books/${r.body.book.id}`, { readFormat: 'vinyl' }, dad);
+  assert.equal(u.body.book.readFormat, null);
+});

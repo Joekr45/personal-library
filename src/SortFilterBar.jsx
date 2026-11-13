@@ -34,7 +34,7 @@ export const SORTERS = {
   published: desc(pubYear)
 };
 
-export const EMPTY_FILTERS = { shelf: '', language: '', format: '', rating: '', collector: '', genre: '', mood: '', pace: '' };
+export const EMPTY_FILTERS = { shelf: '', language: '', format: '', rating: '', collector: '', genre: '', mood: '', pace: '', readAs: '' };
 
 export function applyFilters(books, filters) {
   return books.filter(b => {
@@ -47,6 +47,7 @@ export function applyFilters(books, filters) {
     if (filters.genre && !(b.genres || []).includes(filters.genre)) return false;
     if (filters.mood && !(b.moods || []).includes(filters.mood)) return false;
     if (filters.pace && b.pace !== filters.pace) return false;
+    if (filters.readAs && (b.readFormat || 'print') !== filters.readAs) return false;
     const c = b.collector || {};
     if (filters.collector === 'signed' && !c.signed) return false;
     if (filters.collector === 'first' && !c.firstEdition) return false;
@@ -117,6 +118,15 @@ export default function SortFilterBar({ books, sortBy, onSortChange, filters, on
               </select>
             </label>
           ))}
+          <label className="flex flex-col gap-0.5 text-[10px] uppercase font-semibold text-slate-400">
+            Read as
+            <select value={filters.readAs || ''} onChange={(e) => onFiltersChange({ ...filters, readAs: e.target.value })} className={select}>
+              <option value="">Any</option>
+              <option value="print">Print</option>
+              <option value="ebook">Ebook</option>
+              <option value="audio">Audiobook</option>
+            </select>
+          </label>
           <label className="flex flex-col gap-0.5 text-[10px] uppercase font-semibold text-slate-400">
             Pace
             <select value={filters.pace || ''} onChange={(e) => onFiltersChange({ ...filters, pace: e.target.value })} className={select}>
