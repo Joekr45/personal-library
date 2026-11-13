@@ -77,7 +77,7 @@ export const sectionForArea = (areaKey, opts) => {
 const alertsIn = (tabs, alerts) => tabs.reduce((n, t) => n + (t.alert ? alerts[t.alert] || 0 : 0), 0);
 export const areaAlerts = (areaKey, opts, alerts) => alertsIn(visibleTabs(AREAS.find(a => a.key === areaKey), opts), alerts);
 
-const redBadge = (n, title) => <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-500 text-white" title={title}>{n}</span>;
+const redBadge = (n, title) => <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-[#1e2f26]" title={title}>{n}</span>;
 
 // The side menu: the five areas.
 export default function SidebarMenu({ active, onSelect, counts, alerts, isFamily, hidden = [] }) {
@@ -88,14 +88,14 @@ export default function SidebarMenu({ active, onSelect, counts, alerts, isFamily
       {AREAS.map(area => {
         const isActive = current === area.key;
         const n = areaAlerts(area.key, opts, alerts);
-        const right = n > 0 ? redBadge(n) : area.count ? <span className={`text-[11px] font-normal ${isActive ? 'text-orange-100' : 'text-slate-400'}`}>{counts[area.count] ?? 0}</span> : null;
+        const right = n > 0 ? redBadge(n) : area.count ? <span className={`text-xs ${isActive ? 'text-amber-700 font-semibold' : 'text-[#9fb3a6]'}`}>{counts[area.count] ?? 0}</span> : null;
         return (
           <button
             key={area.key}
             data-nav
             onClick={() => onSelect(sectionForArea(area.key, opts))}
             aria-current={isActive ? 'page' : undefined}
-            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${isActive ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'}`}
+            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[15px] transition-all border ${isActive ? 'bg-[#f4efe3] text-[#24392f] font-bold border-amber-500' : 'text-[#d9e3dc] font-medium border-transparent hover:bg-[#2f4a3d]'}`}
           >
             <span className="flex items-center gap-2.5 min-w-0"><area.icon className="w-4 h-4 flex-shrink-0" /><span className="truncate">{area.label}</span></span>
             {right}
@@ -130,13 +130,13 @@ export function AreaTabs({ active, onSelect, counts, alerts, isFamily, hidden = 
           const count = t.count ? counts[t.count] : null;
           return (
             <React.Fragment key={t.key}>
-            {t.divider && <span className="w-px self-stretch my-1.5 mx-1 bg-slate-200" aria-hidden="true" />}
+            {t.divider && <span className="w-px self-stretch my-1.5 mx-1 bg-slate-300" aria-hidden="true" />}
             <button role="tab" aria-selected={on} data-nav onClick={() => onSelect(t.key)}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap flex items-center gap-1.5 border transition-colors ${on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+              className={`px-3.5 py-2 rounded-full text-[13px] font-semibold whitespace-nowrap flex items-center gap-1.5 border transition-colors ${on ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-slate-700 border-slate-300/70 hover:bg-slate-50'}`}>
               <t.icon className="w-3.5 h-3.5" />
               {t.label}
-              {alert > 0 ? <span className="px-1.5 rounded-full bg-rose-500 text-white text-[10px]">{alert}</span>
-                : count !== null && count !== undefined ? <span className={`text-[10px] font-normal ${on ? 'text-slate-300' : 'text-slate-400'}`}>{count}</span> : null}
+              {alert > 0 ? <span className="px-1.5 rounded-full bg-amber-500 text-[#1e2f26] font-bold text-[10px]">{alert}</span>
+                : count !== null && count !== undefined ? <span className={`text-[11px] font-semibold ${on ? 'text-amber-400' : 'text-slate-500'}`}>{count}</span> : null}
             </button>
             </React.Fragment>
           );

@@ -15,8 +15,8 @@ export default function StarRating({ value, onChange, size = 'md' }) {
         <svg viewBox="0 0 24 24" width={px} height={px} aria-hidden="true">
           <defs>
             <linearGradient id={id}>
-              <stop offset={`${fill * 100}%`} stopColor="#f59e0b" />
-              <stop offset={`${fill * 100}%`} stopColor="#e2e8f0" />
+              <stop offset={`${fill * 100}%`} stopColor="#b8893b" />
+              <stop offset={`${fill * 100}%`} style={{ stopColor: "var(--star-empty, #e3d7be)" }} />
             </linearGradient>
           </defs>
           <path

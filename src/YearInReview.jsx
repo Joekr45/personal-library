@@ -78,7 +78,7 @@ export default function YearInReview({ books, year, entries, onOpenBook, name })
   );
 
   return (
-    <section className="p-5 rounded-3xl bg-gradient-to-br from-purple-600 to-indigo-600 text-white space-y-4 shadow-md" aria-label={`${year} in review`}>
+    <section className="p-5 rounded-3xl bg-gradient-to-br from-violet-600 to-violet-900 text-white space-y-4 shadow-md" aria-label={`${year} in review`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-wider font-semibold text-white/80 flex items-center gap-1.5"><PartyPopper className="w-3.5 h-3.5" /> Your {year} in review</p>

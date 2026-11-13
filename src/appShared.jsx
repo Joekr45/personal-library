@@ -21,12 +21,30 @@ export const COVER_THEMES = [
   { bg: 'from-cyan-950 via-sky-950 to-black', accent: 'border-cyan-400/40 text-cyan-200', tag: 'bg-cyan-500/20 text-cyan-300' }
 ];
 
+// Cloth and leather colours for books without a cover picture (picked from the title, so a book keeps its colour).
+const BINDINGS = [
+  { bg: '#6b2e2a', ink: '#f3e3c8' }, // oxblood
+  { bg: '#2f4a6b', ink: '#eadfc6' }, // navy
+  { bg: '#24392f', ink: '#d9b26a' }, // forest and gold
+  { bg: '#9a6a3a', ink: '#fbf3e0' }, // tan
+  { bg: '#5c3a21', ink: '#ecd7a3' }, // walnut
+  { bg: '#e8dcc2', ink: '#5c3a21' }, // cream cloth
+  { bg: '#4a4f3a', ink: '#ecdfbc' }, // olive
+  { bg: '#3a2c3f', ink: '#e6d2b0' } // plum
+];
+const bindingFor = (book) => {
+  const key = String(book.workTitle || book.id || '');
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return BINDINGS[h % BINDINGS.length];
+};
+
 export function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
   const coverUrl = book.customCoverUrl || (book.editions?.[0]?.isbn && book.editions[0].isbn !== 'Pending Scan' ? `https://covers.openlibrary.org/b/isbn/${book.editions[0].isbn}-M.jpg` : null);
-  const theme = book.theme || COVER_THEMES[0];
+  const binding = bindingFor(book);
 
   // Start fresh when the cover changes (e.g. after choosing a new one)
   useEffect(() => {
@@ -34,8 +52,12 @@ export function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
     setImageError(false);
   }, [coverUrl]);
 
+  const showBinding = !imageLoaded || imageError || !coverUrl;
   return (
-    <div className={`relative w-full ${height} rounded-2xl overflow-hidden shadow-md group-hover:shadow-xl border border-black/10 bg-slate-900 transition-all duration-300 flex flex-col justify-between`}>
+    <div
+      className={`relative w-full ${height} overflow-hidden shadow-[0_10px_16px_-8px_rgba(40,25,10,0.55)] group-hover:shadow-[0_16px_22px_-10px_rgba(40,25,10,0.6)] transition-all duration-300 flex flex-col justify-between`}
+      style={{ borderRadius: '3px 8px 8px 3px', background: binding.bg, color: binding.ink, containerType: 'inline-size' }}
+    >
       {coverUrl && !imageError && (
         <img
           src={coverUrl}
@@ -49,38 +71,23 @@ export function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
         />
       )}
 
-      {(!imageLoaded || imageError || !coverUrl) && (
-        <>
-          <div className={`absolute inset-0 bg-gradient-to-br ${theme.bg} z-0`} />
-          <div className="absolute inset-0 bg-radial-at-t from-white/20 via-transparent to-black/50 pointer-events-none" />
-
-          <div className="relative z-10 my-auto text-center px-2">
-            <div className="w-8 h-8 mx-auto rounded-full border border-white/20 flex items-center justify-center text-white/50 mb-1">
-              <BookOpen className="w-3.5 h-3.5" />
-            </div>
-            <div className="text-[9px] tracking-widest uppercase font-serif text-white/60">
-              {book.series || 'Physical Copy'}
-            </div>
-          </div>
-
-          <div className="relative z-10 p-3 space-y-1">
-            <p className="text-[10px] font-semibold tracking-wider uppercase text-white/80 line-clamp-1">
-              {book.author}
-            </p>
-            <h4 className="text-xs font-black tracking-tight leading-snug line-clamp-2 text-white">
-              {book.workTitle}
-            </h4>
-          </div>
-        </>
+      {showBinding && (
+        <div className="absolute inset-0 z-0 flex flex-col justify-between pl-[18%] pr-[9%] py-[10%]">
+          <span aria-hidden="true" className="block h-px w-full opacity-40" style={{ background: binding.ink }} />
+          <p className="tracking-wider line-clamp-1 opacity-85 mt-1" style={{ fontVariant: 'small-caps', fontSize: 'clamp(6px, 8cqw, 11px)' }}>{book.author}</p>
+          <h4 className="font-serif font-semibold leading-tight line-clamp-3" style={{ fontSize: 'clamp(8px, 12.5cqw, 18px)' }}>{book.workTitle}</h4>
+          <span aria-hidden="true" className="rounded-full border self-center opacity-40" style={{ borderColor: binding.ink, width: '18cqw', height: '18cqw', maxWidth: 26, maxHeight: 26 }} />
+          <span aria-hidden="true" className="block h-px w-full opacity-40" style={{ background: binding.ink }} />
+        </div>
       )}
 
-      <div className="absolute inset-y-0 left-0 w-3 bg-gradient-to-r from-black/50 via-white/10 to-transparent pointer-events-none z-10" />
-      <div className="absolute inset-y-0 left-3 w-px bg-white/20 pointer-events-none z-10" />
-      <div className="absolute inset-y-0 right-0 w-1 bg-black/20 pointer-events-none z-10" />
+      {/* the spine: a crease near the left edge */}
+      <div className="absolute inset-y-0 left-0 w-[7%] bg-gradient-to-r from-black/35 via-black/10 to-white/10 pointer-events-none z-10" />
+      <div className="absolute inset-y-0 left-[7%] w-px bg-white/15 pointer-events-none z-10" />
 
       <div className="relative z-10 p-2.5 flex items-start justify-between pointer-events-none">
-        {book.series ? (
-          <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-amber-300 border border-amber-300/30 shadow-xs">
+        {book.series && book.seriesNumber ? (
+          <span className="ml-[10%] text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full bg-black/55 text-amber-300 border border-amber-300/40">
             #{book.seriesNumber}
           </span>
         ) : (
@@ -88,6 +95,16 @@ export function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
         )}
       </div>
     </div>
+  );
+}
+
+// The wooden shelf the books stand on (in the grid, the pieces join into one long shelf).
+export function ShelfBoard({ className = '' }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`h-3 bg-gradient-to-b from-[#7a4e2c] via-[#5c3a21] to-[#4a2e19] shadow-[0_7px_10px_-5px_rgba(46,35,24,0.65),inset_0_1px_0_rgba(255,220,170,0.25)] ${className}`}
+    />
   );
 }
 
@@ -99,30 +116,31 @@ export function AppleBookCard({ book, onClick, onAuthorClick, selecting = false,
       role={selecting ? 'checkbox' : undefined}
       aria-checked={selecting ? selected : undefined}
       aria-label={selecting ? `Select ${book.workTitle}` : undefined}
-      className={`group cursor-pointer flex flex-col transition-all duration-200 transform hover:-translate-y-1.5 ${selecting && !selected ? 'opacity-70' : ''}`}
+      className={`group cursor-pointer flex flex-col ${selecting && !selected ? 'opacity-70' : ''}`}
     >
-      <div className={`relative rounded-xl ${selected ? 'ring-4 ring-orange-500 ring-offset-2' : ''}`}>
+      <div className={`relative px-[6%] transition-transform duration-200 group-hover:-translate-y-1.5 ${selected ? 'ring-4 ring-orange-500 ring-offset-2 ring-offset-[#f4efe3] rounded-lg' : ''}`}>
         {selecting && (
-          <span className={`absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center text-white text-xs font-bold ${selected ? 'bg-orange-500 border-orange-500' : 'bg-black/30 border-white'}`}>{selected ? '✓' : ''}</span>
+          <span className={`absolute top-2 right-[9%] z-20 w-6 h-6 rounded-full border-2 flex items-center justify-center text-white text-xs font-bold ${selected ? 'bg-orange-500 border-orange-500' : 'bg-black/30 border-white'}`}>{selected ? '✓' : ''}</span>
         )}
         <AppleBookCover book={book} />
         {book.owned === false && (
           <span
-            className="absolute top-2.5 right-2.5 z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center shadow-xs"
+            className="absolute top-2.5 right-[9%] z-20 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center shadow-xs"
             title="On your wishlist"
           >
             <Heart className="w-3.5 h-3.5 text-red-400 fill-red-400" />
           </span>
         )}
       </div>
+      <ShelfBoard className="-mx-3" />
 
-      <div className="mt-2 space-y-0.5">
-        <h4 className="text-xs font-bold text-slate-800 truncate group-hover:text-orange-600 transition-colors">
+      <div className="mt-2.5 space-y-0.5">
+        <h4 className="font-serif text-[15px] font-semibold leading-snug text-slate-900 truncate group-hover:text-orange-600 transition-colors">
           {book.workTitle}
         </h4>
         <button
           onClick={(e) => { e.stopPropagation(); onAuthorClick?.(e); }}
-          className="text-[11px] text-slate-500 hover:text-orange-600 hover:underline transition-colors truncate block text-left"
+          className="text-xs text-slate-500 hover:text-orange-600 hover:underline transition-colors truncate block w-full text-left"
         >
           {book.author}
         </button>

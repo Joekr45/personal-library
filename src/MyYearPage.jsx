@@ -85,7 +85,7 @@ export default function MyYearPage({ books, onOpenBook }) {
       </div>
 
       {/* Goal */}
-      <section className="p-5 bg-gradient-to-br from-orange-500 to-amber-500 text-white rounded-3xl space-y-3 shadow-md">
+      <section className="p-5 bg-gradient-to-br from-amber-600 to-amber-800 text-white rounded-3xl space-y-3 shadow-md">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-wider text-white/80 font-semibold flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> {year} reading goal</p>

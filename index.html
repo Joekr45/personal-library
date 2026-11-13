@@ -4,8 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Personal Library</title>
-    <meta name="theme-color" content="#f97316" />
+    <meta name="theme-color" content="#24392f" />
     <meta name="description" content="Your personal book library" />
+    <!-- The "old library" fonts: EB Garamond for headings, Source Sans 3 for everything else.
+         Without internet the app falls back to Georgia and the device's own font. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Source+Sans+3:wght@400;600;700&display=swap" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -16,7 +21,7 @@
     <!-- Barcode reader for browsers without a built-in one (e.g. iPhone Safari) -->
     <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js" defer></script>
   </head>
-  <body class="bg-[#fbfbfd] text-slate-900 antialiased overflow-hidden">
+  <body class="bg-[#f4efe3] text-slate-900 font-sans antialiased overflow-hidden">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

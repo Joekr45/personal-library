@@ -3,7 +3,7 @@
 // - Book data (/api/...) is never cached here: it always comes fresh from your server. (The app
 //   itself keeps a copy of your library on the device for when you're offline.)
 // - The app's files are cached, so it opens quickly and offline; a new version is picked up automatically.
-const CACHE = 'personal-library-v2';
+const CACHE = 'personal-library-v3';
 const COVERS = 'personal-library-covers';
 
 self.addEventListener('install', (event) => {

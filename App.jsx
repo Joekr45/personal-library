@@ -731,7 +731,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen h-[100dvh] w-full bg-[#fbfbfd] text-slate-900 font-sans antialiased overflow-hidden select-none">
+    <div className="flex h-screen h-[100dvh] w-full bg-[#f4efe3] text-slate-900 font-sans antialiased overflow-hidden select-none">
       {/* On phones the sidebar slides in from the left; tapping outside closes it */}
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-slate-900/40 z-30 md:hidden" onClick={() => setIsSidebarOpen(false)} />
@@ -742,30 +742,30 @@ export default function App() {
         onClick={(e) => { if (e.target.closest('button') && !e.target.closest('[data-keep-open]')) { setIsSidebarOpen(false); setNavTick(t => t + 1); } }}
         className={`fixed inset-y-0 left-0 z-40 md:static md:z-20 md:translate-x-0 transform transition-transform duration-200 ${
           isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
-        } w-64 flex-shrink-0 bg-[#f4f4f7] md:bg-[#f4f4f7]/95 backdrop-blur-2xl border-r border-slate-200/80 flex flex-col justify-between p-4`}
+        } w-64 flex-shrink-0 bg-[#24392f] text-[#efe6d2] border-r border-[#1e2f26] flex flex-col justify-between p-4`}
       >
         <div className="space-y-5 overflow-y-auto pr-1 flex-1 min-h-0">
           <div className="flex items-center gap-3 px-1 pt-1">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 via-amber-500 to-amber-400 flex items-center justify-center text-white shadow-md shadow-orange-500/20">
+            <div className="w-10 h-10 rounded-full border-2 border-amber-500 flex items-center justify-center text-amber-400">
               <BookOpen className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-sm font-bold tracking-tight text-slate-900">Personal Library</h1>
-              <p className="text-[11px] text-slate-500">Apple Books Edition</p>
+              <h1 className="font-serif text-xl font-semibold leading-tight text-[#f6eedc]">Personal Library</h1>
+              <p className="text-[11px] tracking-wider text-[#c9b98f]" style={{ fontVariant: 'small-caps' }}>a home library</p>
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2">
+          <div className="p-3 rounded-2xl bg-[#2f4a3d] border border-[#45604f] space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${currentUser.color} flex items-center justify-center text-white text-xs font-bold shadow-xs flex-shrink-0`}>
                   {currentUser.displayName.charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-800 truncate">
+                  <div className="text-sm font-bold text-[#f6eedc] truncate">
                     {currentUser.displayName}
                   </div>
-                  <div className="text-[10px] text-slate-400 truncate font-mono">
+                  <div className="text-[11px] text-[#bfd0c4] truncate">
                     {currentUser.email}
                   </div>
                 </div>
@@ -774,7 +774,7 @@ export default function App() {
 
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:text-orange-600 bg-slate-50 hover:bg-orange-50 rounded-xl transition-colors border border-slate-200/60"
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold text-[#efe6d2] hover:bg-[#3a5a4a] rounded-xl transition-colors border border-[#5b7767]"
             >
               <Settings className="w-3.5 h-3.5" />
               <span>Settings</span>
@@ -782,7 +782,7 @@ export default function App() {
 
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:text-red-600 bg-slate-50 hover:bg-red-50 rounded-xl transition-colors border border-slate-200/60"
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold text-[#efe6d2] hover:bg-[#3a5a4a] rounded-xl transition-colors border border-[#5b7767]"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Sign Out</span>
@@ -799,22 +799,15 @@ export default function App() {
           />
         </div>
 
-        <div className="mt-3 flex-shrink-0 bg-white/80 border border-slate-200/80 p-3 rounded-2xl shadow-2xs">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold text-slate-800">Unraid Storage</span>
-            <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> {books.length} Books
-            </span>
-          </div>
-          <p className="text-[10px] text-slate-500">
-            Account verified for {currentUser.displayName}.
-          </p>
+        <div className="mt-3 flex-shrink-0 border-t border-[#45604f] pt-3 px-2">
+          <p className="text-[13px] text-amber-400" style={{ fontVariant: 'small-caps', letterSpacing: '0.06em' }}>{books.length} {books.length === 1 ? 'volume' : 'volumes'} · safely stored</p>
+          <p className="text-[11px] text-[#bfd0c4]">On your Unraid server, backed up daily.</p>
         </div>
       </aside>
 
       {/* MAIN WORKSPACE */}
-      <main className="flex-1 flex flex-col min-w-0 bg-[#fbfbfd] overflow-hidden">
-        <header className="h-16 border-b border-slate-200/80 bg-[#fbfbfd]/80 backdrop-blur-md px-3 md:px-8 flex items-center justify-between gap-2 md:gap-4 z-10 flex-shrink-0">
+      <main className="flex-1 flex flex-col min-w-0 bg-[#f4efe3] overflow-hidden">
+        <header className="h-16 border-b border-slate-200/80 bg-[#f4efe3]/80 backdrop-blur-md px-3 md:px-8 flex items-center justify-between gap-2 md:gap-4 z-10 flex-shrink-0">
           <button
             onClick={() => setIsSidebarOpen(true)}
             className="md:hidden w-9 h-9 flex-shrink-0 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700"
