@@ -10,6 +10,7 @@ import { createCoverStore, CoverError, COVER_CONTENT_TYPES, isPrivateAddress } f
 import { createHardcover, HardcoverError, cleanToken } from './hardcover.js';
 import { createBackups } from './backups.js';
 import { createSocial } from './social.js';
+import { createLibraryTools } from './library-tools.js';
 import { classifyCode } from '../shared/isbn.js';
 import {
   SESSION_COOKIE, hashPassword, verifyPassword, createSession, userForSession,
@@ -584,6 +585,18 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       return { status: 200, body: { backups: backups.list() } };
     },
 
+    // Put everything back to how it was in a backup: { file }
+    'POST /api/admin/backups/restore': async (req) => {
+      requireOwner(req);
+      const { file } = await readJson(req);
+      try {
+        backups.restore(String(file || ''));
+      } catch (err) {
+        throw new HttpError(/not found/.test(err.message) ? 404 : 500, err.message || 'The restore did not work. Nothing was changed.');
+      }
+      return { status: 200, body: { ok: true, backups: backups.list() } };
+    },
+
     // ----- Settings -----
     'GET /api/settings': (req) => {
       const user = requireUser(req);
@@ -924,7 +937,8 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   const removeUser = (req, userId) => {
     const owner = requireOwner(req);
     if (userId === owner.id) throw new HttpError(400, 'You can\'t remove your own account.');
-    const files = db.prepare('SELECT data FROM books WHERE user_id = ?').all(userId).map(r => JSON.parse(r.data).coverFile).filter(Boolean);
+    const files = [...db.prepare('SELECT data FROM books WHERE user_id = ?').all(userId), ...db.prepare('SELECT data FROM trash WHERE user_id = ?').all(userId)]
+      .map(r => JSON.parse(r.data).coverFile).filter(Boolean);
     const result = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
     if (result.changes === 0) throw new HttpError(404, 'Account not found.');
     files.forEach(f => covers.remove(f));
@@ -997,6 +1011,10 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   const social = createSocial({ db, requireUser, requireFamily, readJson, HttpError, cleanText, getSetting, setSetting, lookup });
   Object.assign(routes, social.routes);
   // Never let the feed bookkeeping stop a book from saving.
+  // Trash bin, merging duplicates, changing many books at once (server/library-tools.js)
+  const tools = createLibraryTools({ db, requireUser, readJson, HttpError, validateBook, bookFromRow, covers, cleanText });
+  Object.assign(routes, tools.routes);
+  if (startBackups) setInterval(() => { try { tools.purgeOld(); } catch (err) { console.error('trash:', err.message); } }, 24 * 60 * 60 * 1000).unref?.();
   const recordBookChange = (...args) => { try { social.recordBookChange(...args); } catch (err) { console.error('activity:', err); } };
   if (startBackups) {
     // Check wishlists against the library and ebook prices once a day.
@@ -1047,9 +1065,9 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       const user = requireUser(req);
       const existing = db.prepare('SELECT data FROM books WHERE id = ? AND user_id = ?').get(bookId, user.id);
       if (!existing) throw new HttpError(404, 'Book not found.');
-      db.prepare('DELETE FROM books WHERE id = ? AND user_id = ?').run(bookId, user.id);
-      covers.remove(JSON.parse(existing.data).coverFile);
-      return { status: 200, body: { ok: true } };
+      // Deleted books go to the trash for 30 days (Settings → Recently deleted), so they can be put back.
+      tools.moveToTrash(user.id, [bookId]);
+      return { status: 200, body: { ok: true, trashed: true } };
     }
   };
 

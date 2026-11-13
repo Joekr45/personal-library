@@ -150,3 +150,11 @@ api.setFollow = (name, follow, key) => request('PUT', '/api/me/follows', { name,
 api.wishlistCheck = () => request('GET', '/api/wishlist/check');
 api.runWishlistCheck = () => request('POST', '/api/wishlist/check');
 api.fixAuthors = () => request('POST', '/api/books/fix-authors');
+
+// Trash bin, duplicates, many books at once, restoring a backup
+api.trash = () => request('GET', '/api/trash');
+api.restoreFromTrash = (ids) => request('POST', '/api/trash/restore', { ids }).then(d => d.books);
+api.emptyTrash = (body) => request('POST', '/api/trash/empty', body);
+api.mergeBooks = (keepId, mergeIds) => request('POST', '/api/books/merge', { keepId, mergeIds });
+api.batchBooks = (body) => request('POST', '/api/books/batch', body);
+api.restoreBackup = (file) => request('POST', '/api/admin/backups/restore', { file });

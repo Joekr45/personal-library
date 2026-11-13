@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   X, Settings, CheckCircle2, RefreshCw, ExternalLink, AlertTriangle, Download, KeyRound, Users, Database,
-  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info, Menu, Search
+  Smartphone, Trash2, Lock, Upload, Moon, Library, Activity, Info, Menu, Search, Copy
 } from 'lucide-react';
+import { findDuplicates } from './duplicates.js';
 import { HIDEABLE } from './SidebarMenu.jsx';
 import { api } from './api.js';
 import { getTheme, setTheme } from './theme.js';
@@ -510,7 +511,16 @@ function OwnerSection({ currentUserId }) {
         </p>
         {backups && backups.length > 0 && (
           <ul className="text-[11px] text-slate-600 space-y-0.5">
-            {backups.map(b => <li key={b.file}>• {b.date} — {size(b.bytes)}</li>)}
+            {backups.map(b => (
+              <li key={b.file} className="flex items-center gap-2">
+                <span className="flex-1">• {b.beforeRestore ? `Just before a restore (${new Date(b.at).toLocaleString()})` : b.date} — {size(b.bytes)}</span>
+                <button disabled={busy} onClick={() => {
+                  const when = b.beforeRestore ? 'how it was just before that restore' : `how it was on ${b.date}`;
+                  if (!confirm(`Put EVERYONE's library back to ${when}?\n\nAnything added or changed since then will be undone. A safety copy of the library as it is right now is saved first, so you can undo this.`)) return;
+                  act(async () => { await api.restoreBackup(b.file); alert('Done. The page will now reload.'); window.location.reload(); });
+                }} className="px-2 py-0.5 rounded-md border border-slate-200 text-[10px] font-semibold text-slate-600 hover:bg-orange-50 hover:text-orange-700">Restore</button>
+              </li>
+            ))}
           </ul>
         )}
         <div className="flex gap-2 flex-wrap">
@@ -547,7 +557,8 @@ function SharingToggle({ onChange }) {
   );
 }
 
-export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange, onImport, prefs, onPrefsChange, books, onBookSaved }) {
+export default function SettingsModal({ settings, currentUser, onChange, onClose, onFamilyChange, onImport, prefs, onPrefsChange, books, onBookSaved, onOpenTrash, onOpenDuplicates }) {
+  const duplicateCount = findDuplicates(books || [], (() => { try { return JSON.parse(localStorage.getItem('pl_not_duplicates') || '[]'); } catch { return []; } })()).length;
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-stretch sm:items-center justify-center sm:p-4">
       <div className="bg-white sm:rounded-3xl shadow-2xl max-w-lg w-full flex flex-col h-full sm:h-auto sm:max-h-[92vh] overflow-hidden">
@@ -568,6 +579,8 @@ export default function SettingsModal({ settings, currentUser, onChange, onClose
             <button onClick={onImport} className={buttonClass}><Upload className="w-3.5 h-3.5" /> Import from Goodreads</button>
             <FillInfoButton books={books} onBookSaved={onBookSaved} />
             <FixAuthorsButton books={books} onBookSaved={onBookSaved} />
+            <button onClick={onOpenDuplicates} className={buttonClass}><Copy className="w-3.5 h-3.5" /> Find duplicates{duplicateCount ? ` (${duplicateCount})` : ''}</button>
+            <button onClick={onOpenTrash} className={buttonClass}><Trash2 className="w-3.5 h-3.5" /> Recently deleted</button>
             {currentUser?.circle !== 'friend' && <SharingToggle onChange={onFamilyChange} />}
           </Section>
           <ActivitySection />

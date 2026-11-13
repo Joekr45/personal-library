@@ -175,7 +175,9 @@ test('switching to a web cover or deleting the book removes the saved file', asy
 
   const again = (await (await call('POST', `/api/books/${book.id}/cover`, { url: 'https://images.example.com/cover.jpg' })).json()).book;
   await call('DELETE', `/api/books/${book.id}`);
-  assert.ok(!coverFiles().includes(again.coverFile));
+  assert.ok(coverFiles().includes(again.coverFile), 'kept while the book is in the trash');
+  await call('POST', '/api/trash/empty', { ids: [book.id] });
+  assert.ok(!coverFiles().includes(again.coverFile), 'removed once the trash is emptied');
 });
 
 test('cover options endpoint', async () => {
