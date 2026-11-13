@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BarChart3, Flame } from 'lucide-react';
 import { api } from './api.js';
+import { hoursText } from './shelves.js';
 
 const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
 
@@ -28,6 +29,9 @@ export default function ReadingStats({ entries, year }) {
   const pages = lengths.reduce((s, n) => s + n, 0);
   const minutesThisYear = (log?.days || []).filter(d => d.day.startsWith(String(year))).reduce((s, d) => s + d.minutes, 0);
   const maxGenre = Math.max(1, ...genres.map(g => g[1]));
+  const formatCounts = { print: 0, ebook: 0, audio: 0 };
+  books.forEach(b => { formatCounts[b.readFormat || 'print']++; });
+  const audioMinutes = books.filter(b => b.readFormat === 'audio').reduce((s, b) => s + (Number(b.audioLength) || Number(b.audioMinutes) || 0), 0);
 
   const stat = (label, value, hint) => (
     <div className="p-3 bg-slate-50 rounded-2xl">
@@ -46,6 +50,12 @@ export default function ReadingStats({ entries, year }) {
         {stat('Pages a day', pages ? (pages / daysSoFar).toFixed(1) : '—')}
         {stat('Reading streak', log ? <span className="flex items-center gap-1"><Flame className="w-4 h-4 text-orange-500" />{log.streak.current} day{log.streak.current === 1 ? '' : 's'}</span> : '—', log ? `best: ${log.streak.longest}` : null)}
       </div>
+      {books.length > 0 && (formatCounts.ebook > 0 || formatCounts.audio > 0) && (
+        <p className="text-xs text-slate-600">
+          How you read: <b>{formatCounts.print}</b> print · <b>{formatCounts.ebook}</b> ebook · <b>{formatCounts.audio}</b> audiobook
+          {audioMinutes > 0 && <> · <b>{hoursText(audioMinutes)}</b> of audiobooks</>}
+        </p>
+      )}
       {minutesThisYear > 0 && <p className="text-xs text-slate-600">Logged reading time in {year}: <b>{Math.floor(minutesThisYear / 60)} h {minutesThisYear % 60} min</b></p>}
       {genres.length > 0 ? (
         <div className="space-y-1.5">

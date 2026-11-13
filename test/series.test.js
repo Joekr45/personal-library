@@ -147,6 +147,24 @@ test('series books: reading order, one book per number, no translations/compilat
   assert.equal((await call('GET', '/api/series/8/books')).status, 404);
 });
 
+test('after finishing a book in a series, the next one you don\'t have is suggested', async () => {
+  const add = async (b) => (await (await call('POST', '/api/books', { editions: [], author: 'Ken Follett', ...b })).json()).book;
+  const first = await add({ workTitle: 'Fall of Giants', series: 'The Century Trilogy', seriesNumber: 1, hardcoverSeriesId: 7, readingStatus: 'Completed' });
+  const next = (await (await call('GET', `/api/series/next?bookId=${first.id}`)).json()).next;
+  assert.equal(next.title, 'Winter of the World');
+  assert.equal(next.seriesNumber, 2);
+  assert.equal(next.series, 'The Century Trilogy');
+  assert.equal(next.author, 'Ken Follett');
+  assert.equal(next.cover, 'https://assets.hardcover.app/102.jpg');
+  const second = await add({ workTitle: 'Winter of the World', series: 'The Century Trilogy', seriesNumber: 2, hardcoverSeriesId: 7 });
+  assert.equal((await (await call('GET', `/api/series/next?bookId=${first.id}`)).json()).next, null, 'already have #2');
+  const third = (await (await call('GET', `/api/series/next?bookId=${second.id}`)).json()).next;
+  assert.equal(third.title, 'Edge of Eternity');
+  const loner = await add({ workTitle: 'Eye of the Needle' });
+  assert.equal((await (await call('GET', `/api/series/next?bookId=${loner.id}`)).json()).next, null);
+  assert.equal((await call('GET', `/api/series/next?bookId=${first.id}`, undefined, memberCookie)).status, 404);
+});
+
 test('disconnecting', async () => {
   assert.equal((await call('DELETE', '/api/settings/hardcover', undefined, memberCookie)).status, 403);
   assert.equal((await (await call('DELETE', '/api/settings/hardcover')).json()).hardcover.connected, false);

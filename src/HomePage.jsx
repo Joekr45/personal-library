@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BookOpen, Flame, Inbox, BellRing, Sparkles, Library, Activity, Plus, Target, ChevronRight } from 'lucide-react';
 import { api } from './api.js';
-import { progressOf } from './shelves.js';
+import { progressOf, progressLabel } from './shelves.js';
 import { finishesInYear } from './YearInReview.jsx';
 import { wishlistNews } from './WishlistAlerts.jsx';
 import { Avatar } from './ActivityPage.jsx';
@@ -76,7 +76,7 @@ export default function HomePage({ books, currentUser, overdue, inboxCount, newC
                     <p className="text-[11px] text-slate-500 truncate">{b.author}</p>
                     <div className="mt-2 flex items-center gap-2">
                       <div className="flex-1 h-2 rounded-full bg-orange-100 overflow-hidden"><div className="h-full bg-orange-500 rounded-full" style={{ width: `${p?.pct || 0}%` }} /></div>
-                      <span className="text-[11px] font-semibold text-orange-600">{p ? (p.pct !== null ? `${p.pct}%` : `p. ${p.page}`) : 'Start'}</span>
+                      <span className="text-[11px] font-semibold text-orange-600">{p ? (p.pct !== null ? `${p.pct}%` : progressLabel(p)) : 'Start'}</span>
                     </div>
                   </div>
                 </button>

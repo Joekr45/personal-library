@@ -165,3 +165,4 @@ api.pushSubscribe = (subscription) => request('POST', '/api/push/subscribe', { s
 api.pushUnsubscribe = (endpoint) => request('POST', '/api/push/unsubscribe', { endpoint });
 api.pushPrefs = (changes) => request('PUT', '/api/push/prefs', changes).then(d => d.prefs);
 api.pushTest = () => request('POST', '/api/push/test');
+api.seriesNext = (bookId) => request('GET', `/api/series/next?bookId=${encodeURIComponent(bookId)}`);
