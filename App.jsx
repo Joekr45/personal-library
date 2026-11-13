@@ -92,6 +92,9 @@ import GiftsPage from './src/GiftsPage.jsx';
 import WishlistAlerts from './src/WishlistAlerts.jsx';
 import SidebarMenu from './src/SidebarMenu.jsx';
 import HomePage from './src/HomePage.jsx';
+import TrashModal from './src/TrashModal.jsx';
+import DuplicatesModal from './src/DuplicatesModal.jsx';
+import BatchBar from './src/BatchBar.jsx';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -136,6 +139,43 @@ export default function App() {
   const [inboxCount, setInboxCount] = useState(0); // books recommended to you, not answered yet
   const [navTick, setNavTick] = useState(0); // changes on every menu tap, so pages reload fresh
   const [bookTab, setBookTab] = useState('reading'); // which tab of the book page is showing (kept between books)
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [isDuplicatesOpen, setIsDuplicatesOpen] = useState(false);
+  // Selecting several books to change them at once
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const toggleSelected = (id) => setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const stopSelecting = () => { setSelectMode(false); setSelectedIds(new Set()); };
+  // "Deleted … Undo" message after a delete
+  const [undo, setUndo] = useState(null); // { message, ids }
+  const undoTimer = useRef(null);
+  const offerUndo = (message, ids) => {
+    clearTimeout(undoTimer.current);
+    setUndo({ message, ids });
+    undoTimer.current = setTimeout(() => setUndo(null), 10000);
+  };
+  const undoDelete = async () => {
+    const ids = undo?.ids || [];
+    setUndo(null);
+    try {
+      const restored = await api.restoreFromTrash(ids);
+      setBooks(prev => [...restored, ...prev.filter(b => !ids.includes(b.id))]);
+    } catch (err) { handleApiError(err); }
+  };
+  const applyBatch = async (body) => {
+    const ids = [...selectedIds];
+    try {
+      const res = await api.batchBooks({ ids, ...body });
+      if (body.trash) {
+        setBooks(prev => prev.filter(b => !ids.includes(b.id)));
+        offerUndo(`Deleted ${ids.length} book${ids.length === 1 ? '' : 's'}.`, ids);
+        stopSelecting();
+      } else {
+        const byId = new Map(res.books.map(b => [b.id, b]));
+        setBooks(prev => prev.map(b => byId.get(b.id) || b));
+      }
+    } catch (err) { handleApiError(err); }
+  };
   const loadNewReleases = () => {
     setNewReleases(null);
     api.newReleases().then(setNewReleases).catch(err => setNewReleases({ error: err.message, releases: [] }));
@@ -286,9 +326,11 @@ export default function App() {
 
   const removeBook = async (bookId) => {
     const before = books;
+    const title = books.find(b => b.id === bookId)?.workTitle;
     setBooks(prev => prev.filter(b => b.id !== bookId));
     try {
       await api.deleteBook(bookId);
+      offerUndo(`Deleted “${title || 'book'}”.`, [bookId]);
     } catch (err) {
       setBooks(before);
       handleApiError(err);
@@ -820,7 +862,7 @@ export default function App() {
 
           <SidebarMenu
             active={activeSection}
-            onSelect={(key) => { setActiveSection(key); setCurrentPage(1); if (key === 'family') loadFamily(); }}
+            onSelect={(key) => { setActiveSection(key); setCurrentPage(1); stopSelecting(); if (key === 'family') loadFamily(); }}
             counts={{ ...counts, quotes: quoteCount }}
             alerts={{ overdue: overdue.length, inbox: inboxCount, newReleases: newReleases?.releases?.length || 0 }}
             shelves={myShelves}
@@ -1090,13 +1132,23 @@ export default function App() {
                 )}
               </div>
 
-              <SortFilterBar
-                books={books}
-                sortBy={sortBy}
-                onSortChange={changeSort}
-                filters={filters}
-                onFiltersChange={changeFilters}
-              />
+              <div className="flex items-start gap-2 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <SortFilterBar
+                    books={books}
+                    sortBy={sortBy}
+                    onSortChange={changeSort}
+                    filters={filters}
+                    onFiltersChange={changeFilters}
+                  />
+                </div>
+                {filteredBooks.length > 0 && (
+                  <button onClick={() => (selectMode ? stopSelecting() : setSelectMode(true))}
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold border ${selectMode ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>
+                    {selectMode ? 'Cancel' : 'Select'}
+                  </button>
+                )}
+              </div>
 
               {filteredBooks.length === 0 ? (
                 <div className="py-20 flex flex-col items-center justify-center text-center space-y-4 bg-white border border-dashed border-slate-300 rounded-3xl p-8">
@@ -1132,8 +1184,10 @@ export default function App() {
                     <AppleBookCard
                       key={book.id}
                       book={book}
-                      onClick={() => { setSelectedBook(book); setActiveEditionIndex(0); }}
-                      onAuthorClick={(e) => navigateToAuthor(book.author, e)}
+                      selecting={selectMode}
+                      selected={selectedIds.has(book.id)}
+                      onClick={() => (selectMode ? toggleSelected(book.id) : (setSelectedBook(book), setActiveEditionIndex(0)))}
+                      onAuthorClick={(e) => (selectMode ? (e.stopPropagation(), toggleSelected(book.id)) : navigateToAuthor(book.author, e))}
                     />
                   ))}
                 </div>
@@ -1154,10 +1208,11 @@ export default function App() {
                       {paginatedBooks.map(book => (
                         <tr
                           key={book.id}
-                          onClick={() => { setSelectedBook(book); setActiveEditionIndex(0); }}
-                          className="hover:bg-slate-50/80 cursor-pointer transition-colors"
+                          onClick={() => (selectMode ? toggleSelected(book.id) : (setSelectedBook(book), setActiveEditionIndex(0)))}
+                          className={`cursor-pointer transition-colors ${selectedIds.has(book.id) ? 'bg-orange-50' : 'hover:bg-slate-50/80'}`}
                         >
                           <td className="py-3 px-4 font-medium text-slate-900">
+                            {selectMode && <input type="checkbox" readOnly checked={selectedIds.has(book.id)} aria-label={`Select ${book.workTitle}`} className="mr-2 accent-orange-500 align-middle" />}
                             <div>{book.workTitle}</div>
                             {book.series && (
                               <div className="text-[11px] text-orange-600 font-medium">
@@ -1623,8 +1678,50 @@ export default function App() {
         />
       )}
 
+      {isTrashOpen && (
+        <TrashModal
+          onClose={() => setIsTrashOpen(false)}
+          onRestored={(restored) => setBooks(prev => [...restored, ...prev.filter(b => !restored.some(r => r.id === b.id))])}
+          renderCover={(book) => <AppleBookCover book={book} />}
+        />
+      )}
+
+      {isDuplicatesOpen && (
+        <DuplicatesModal
+          books={books}
+          onClose={() => setIsDuplicatesOpen(false)}
+          onMerged={(book, trashed) => {
+            setBooks(prev => prev.filter(b => !trashed.includes(b.id)).map(b => (b.id === book.id ? book : b)));
+            offerUndo(`Merged into “${book.workTitle}”. The extra copies are in Recently deleted.`, []);
+          }}
+          renderCover={(book) => <AppleBookCover book={book} />}
+        />
+      )}
+
+      {selectMode && !['home', 'authors', 'series', 'year', 'family', 'new', 'challenges', 'quotes', 'activity', 'discover', 'clubs', 'lists', 'readinglog', 'gifts'].includes(activeSection) && (
+        <BatchBar
+          count={selectedIds.size}
+          total={filteredBooks.length}
+          shelves={myShelves}
+          onSelectAll={() => setSelectedIds(new Set(filteredBooks.map(b => b.id)))}
+          onClear={() => setSelectedIds(new Set())}
+          onDone={stopSelecting}
+          onApply={applyBatch}
+        />
+      )}
+
+      {undo && (
+        <div className={`fixed ${selectMode ? 'bottom-24' : 'bottom-4'} left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs shadow-2xl flex items-center gap-3 ring-1 ring-white/10`} role="status">
+          <span>{undo.message}</span>
+          {undo.ids.length > 0 && <button onClick={undoDelete} className="font-bold text-orange-400 hover:text-orange-300">Undo</button>}
+          <button onClick={() => setUndo(null)} aria-label="Dismiss" className="text-white/60 hover:text-white">✕</button>
+        </div>
+      )}
+
       {isSettingsOpen && settings && (
-        <SettingsModal settings={settings} currentUser={currentUser} prefs={prefs} onPrefsChange={setPrefs} books={books} onBookSaved={onBookSaved} onChange={setSettings} onFamilyChange={loadFamily} onImport={() => setIsImportOpen(true)} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal settings={settings} currentUser={currentUser} prefs={prefs} onPrefsChange={setPrefs} books={books} onBookSaved={onBookSaved} onChange={setSettings} onFamilyChange={loadFamily} onImport={() => setIsImportOpen(true)} onClose={() => setIsSettingsOpen(false)}
+          onOpenTrash={() => { setIsSettingsOpen(false); setIsTrashOpen(true); }}
+          onOpenDuplicates={() => { setIsSettingsOpen(false); setIsDuplicatesOpen(true); }} />
       )}
 
       {/* COVER PICKERS */}
@@ -1787,13 +1884,19 @@ function AppleBookCover({ book, height = 'aspect-[2/3]' }) {
 }
 
 // Card Wrapper for Grid Views
-function AppleBookCard({ book, onClick, onAuthorClick }) {
+function AppleBookCard({ book, onClick, onAuthorClick, selecting = false, selected = false }) {
   return (
     <div
       onClick={onClick}
-      className="group cursor-pointer flex flex-col transition-all duration-200 transform hover:-translate-y-1.5"
+      role={selecting ? 'checkbox' : undefined}
+      aria-checked={selecting ? selected : undefined}
+      aria-label={selecting ? `Select ${book.workTitle}` : undefined}
+      className={`group cursor-pointer flex flex-col transition-all duration-200 transform hover:-translate-y-1.5 ${selecting && !selected ? 'opacity-70' : ''}`}
     >
-      <div className="relative">
+      <div className={`relative rounded-xl ${selected ? 'ring-4 ring-orange-500 ring-offset-2' : ''}`}>
+        {selecting && (
+          <span className={`absolute top-2 right-2 z-10 w-6 h-6 rounded-full border-2 flex items-center justify-center text-white text-xs font-bold ${selected ? 'bg-orange-500 border-orange-500' : 'bg-black/30 border-white'}`}>{selected ? '✓' : ''}</span>
+        )}
         <AppleBookCover book={book} />
         {book.owned === false && (
           <span

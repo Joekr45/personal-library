@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -191,6 +191,19 @@ function migrate(db) {
           claimed_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+      `);
+    }
+    if (current < 8) {
+      db.exec(`
+        -- Recently deleted books, kept for 30 days so they can be restored.
+        CREATE TABLE trash (
+          id         TEXT PRIMARY KEY,
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          data       TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          deleted_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX trash_user ON trash(user_id);
       `);
     }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);

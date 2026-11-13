@@ -25,6 +25,14 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **My Year** (menu): books finished this year, a **yearly goal** with "ahead/behind schedule", books per month, pages, average rating, top author, and **Up next in your series**.
 - Book lists have a **sort menu** (title, author, recently added, recently finished, rating, year published — remembered on each device) and **filters** (shelf, language, format, rating).
 
+## Keeping your library safe
+
+- **Undo**: after deleting a book, an **Undo** button appears for a few seconds.
+- **Recently deleted** (Settings → My books): deleted books are kept for 30 days, with their notes, dates and covers. Put them back or delete them for good.
+- **Find duplicates** (Settings → My books): books that are in the library twice (same ISBN, or same title and author). Pick the copy to keep and **Merge**: editions, notes, dates, ratings, quotes, shelves and more from every copy are combined; the extra copies go to Recently deleted. "Not duplicates" hides a pair on this device.
+- **Select** (above any book list): tap books to select them, then change them all at once: reading status (dates fill in), add to a shelf, location, I own these / to wishlist, or delete.
+- **Restore a backup** (Settings → Backups, Owner only): puts everyone's library back to that day. A copy of the library as it was just before is saved first and listed as "Just before a restore", so a restore can be undone the same way.
+
 ## Finding your way around
 
 - **Home** (first screen): what you're reading (with progress), today's reading minutes with quick +10/+20/+30 buttons and your streak, your yearly goal, anything that needs you (recommendations, overdue loans, wishlist books available or on sale, new books from your authors), and recent activity from family & friends. Typing in the search box jumps to All Books.
