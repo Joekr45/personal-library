@@ -69,18 +69,23 @@ function MenuSection({ prefs, onPrefsChange, isFamily }) {
     setError('');
     try { onPrefsChange?.(await api.setPrefs({ hiddenMenu: [...next] })); } catch (err) { setError(err.message); setHiddenList(prefs?.hiddenMenu || []); }
   };
-  const items = [...HIDEABLE.filter(i => !i.familyOnly || isFamily), { key: 'shelves', label: 'My Shelves (whole section)', groupTitle: 'My Shelves' }];
+  const items = HIDEABLE.filter(i => !i.familyOnly || isFamily);
   return (
     <Section icon={Menu} title="Menu">
-      <p className="text-slate-500">Untick anything you don't use to hide it from your menu. This is just for you, on every device. You can bring things back any time.</p>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-        {items.map(i => (
-          <label key={i.key} className="flex items-center gap-2 py-0.5 text-slate-700">
-            <input type="checkbox" checked={!hidden.has(i.key)} onChange={() => toggle(i.key)} className="accent-orange-500" />
-            {i.label}
-          </label>
-        ))}
-      </div>
+      <p className="text-slate-500">Untick any page you don't use to hide its tab. This is just for you, on every device. You can bring things back any time.</p>
+      {[...new Set(items.map(i => i.groupTitle))].map(group => (
+        <div key={group} className="space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{group}</p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            {items.filter(i => i.groupTitle === group).map(i => (
+              <label key={i.key} className="flex items-center gap-2 py-0.5 text-slate-700">
+                <input type="checkbox" checked={!hidden.has(i.key)} onChange={() => toggle(i.key)} className="accent-orange-500" />
+                {i.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
       {error && <p className="text-red-700">{error}</p>}
     </Section>
   );
