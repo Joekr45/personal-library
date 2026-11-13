@@ -29,6 +29,11 @@ before(async () => {
   mom = await register('mom@example.com', 'Mom'); // Owner
   kid = await register('kid@example.com', 'Kid');
   dad = await register('dad@example.com', 'Dad');
+  // Open sign-ups start as Friend; these tests are about family, so make everyone Family.
+  const everyone = (await (await fetch(`${base}/api/admin/users`, { headers: { Cookie: mom } })).json()).users;
+  for (const u of everyone.filter(u => u.role !== 'Owner')) {
+    await fetch(`${base}/api/admin/circle`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: mom }, body: JSON.stringify({ userId: u.id, circle: 'family' }) });
+  }
 });
 after(async () => {
   server.closeAllConnections();
@@ -109,10 +114,10 @@ test('family challenges: create, join, count finished books (re-reads too), leav
 test('upgrading an older database adds the challenge tables and keeps books', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-upgrade-'));
   const db = openDatabase(dir);
-  db.exec('DROP TABLE challenge_members; DROP TABLE challenges; PRAGMA user_version = 4;');
+  db.exec('DROP TABLE challenge_members; DROP TABLE challenges; ALTER TABLE users DROP COLUMN circle; ALTER TABLE invites DROP COLUMN circle; PRAGMA user_version = 4;');
   db.close();
   const again = openDatabase(dir);
-  assert.equal(again.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(again.prepare('PRAGMA user_version').get().user_version, 6);
   assert.ok(again.prepare("SELECT name FROM sqlite_master WHERE name = 'challenges'").get());
   again.close();
   fs.rmSync(dir, { recursive: true, force: true });

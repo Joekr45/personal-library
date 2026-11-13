@@ -87,6 +87,16 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
 
   // Family sharing: each person chooses whether the rest of the family can see their library.
   const isSharing = (userId) => getSetting(`share:${userId}`) === 'true';
+  // Family or Friend: only Family accounts take part in the family features.
+  const CIRCLES = ['family', 'friend'];
+  const isFamilyId = (userId) => db.prepare('SELECT circle FROM users WHERE id = ?').get(userId)?.circle !== 'friend';
+  const requireFamily = (req) => {
+    const user = requireUser(req);
+    if (user.circle === 'friend') throw new HttpError(403, 'This is only for family accounts.');
+    return user;
+  };
+  // A library the family can see: the person is Family and has turned sharing on.
+  const sharesWithFamily = (userId) => isFamilyId(userId) && isSharing(userId);
 
   const requireOwner = (req) => {
     const user = requireUser(req);
@@ -264,7 +274,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   ].filter(Boolean);
 
   const listChallenges = (user) => {
-    const users = new Map(db.prepare('SELECT id, display_name, color FROM users').all().map(u => [u.id, u]));
+    const users = new Map(db.prepare("SELECT id, display_name, color FROM users WHERE circle != 'friend'").all().map(u => [u.id, u]));
     return db.prepare('SELECT * FROM challenges ORDER BY ends_on DESC, created_at DESC').all().map(c => {
       const members = db.prepare('SELECT user_id FROM challenge_members WHERE challenge_id = ? ORDER BY joined_at').all(c.id)
         .map(({ user_id }) => {
@@ -289,7 +299,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   };
 
   const challengeAction = async (req, id, action) => {
-    const user = requireUser(req);
+    const user = requireFamily(req);
     const challenge = db.prepare('SELECT * FROM challenges WHERE id = ?').get(id);
     if (!challenge) throw new HttpError(404, 'That challenge no longer exists.');
     if (action === 'join') db.prepare('INSERT OR IGNORE INTO challenge_members (challenge_id, user_id) VALUES (?, ?)').run(id, user.id);
@@ -346,12 +356,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         email,
         display_name: displayName,
         role: count === 0 ? 'Owner' : 'Member',
-        color: USER_COLORS[count % USER_COLORS.length]
+        color: USER_COLORS[count % USER_COLORS.length],
+        // The Owner is family; invited people get what the invite says; open sign-ups start as Friend.
+        circle: count === 0 ? 'family' : invite ? (invite.circle === 'friend' ? 'friend' : 'family') : 'friend'
       };
       db.exec('BEGIN');
       try {
-        db.prepare('INSERT INTO users (id, email, password_hash, display_name, role, color) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(user.id, user.email, hashPassword(password), user.display_name, user.role, user.color);
+        db.prepare('INSERT INTO users (id, email, password_hash, display_name, role, color, circle) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(user.id, user.email, hashPassword(password), user.display_name, user.role, user.color, user.circle);
         if (invite) {
           // Use up the code (only if nobody else used it a moment ago)
           const used = db.prepare("UPDATE invites SET used_by = ?, used_at = datetime('now') WHERE code = ? AND used_at IS NULL").run(user.id, invite.code);
@@ -449,11 +461,25 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     'GET /api/admin/users': (req) => {
       requireOwner(req);
       const users = db.prepare(`
-        SELECT u.id, u.email, u.display_name, u.role, u.color, u.created_at,
+        SELECT u.id, u.email, u.display_name, u.role, u.color, u.circle, u.created_at,
                (SELECT COUNT(*) FROM books b WHERE b.user_id = u.id) AS book_count
         FROM users u ORDER BY u.created_at
       `).all().map(u => ({ ...publicUser(u), createdAt: u.created_at, bookCount: u.book_count }));
       return { status: 200, body: { users, signupMode: signupMode(), signupsOpen: signupMode() !== 'closed' } };
+    },
+
+    // Mark an account as Family or Friend: { circle: 'family' | 'friend' }
+    'PUT /api/admin/circle': async (req) => {
+      const owner = requireOwner(req);
+      const body = await readJson(req);
+      if (!CIRCLES.includes(body.circle)) throw new HttpError(400, 'Choose family or friend.');
+      const target = db.prepare('SELECT id, role FROM users WHERE id = ?').get(String(body.userId || ''));
+      if (!target) throw new HttpError(404, 'That account no longer exists.');
+      if (target.id === owner.id || target.role === 'Owner') throw new HttpError(400, 'The Owner is always family.');
+      db.prepare('UPDATE users SET circle = ? WHERE id = ?').run(body.circle, target.id);
+      // A friend can't stay in family challenges.
+      if (body.circle === 'friend') db.prepare('DELETE FROM challenge_members WHERE user_id = ?').run(target.id);
+      return { status: 200, body: { ok: true, circle: body.circle } };
     },
 
     'PUT /api/admin/signups': async (req) => {
@@ -481,6 +507,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
             createdAt: `${r.created_at.replace(' ', 'T')}Z`,
             expiresAt: `${r.expires_at.replace(' ', 'T')}Z`,
             status: inviteStatus(r),
+            circle: r.circle === 'friend' ? 'friend' : 'family',
             usedBy: r.used_by_name || null
           }))
         }
@@ -495,8 +522,9 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       const expires = new Date(Date.now() + days * 86400000).toISOString().slice(0, 19).replace('T', ' ');
       let code = newInviteCode();
       while (db.prepare('SELECT 1 FROM invites WHERE code = ?').get(code)) code = newInviteCode();
-      db.prepare('INSERT INTO invites (code, created_by, note, expires_at) VALUES (?, ?, ?, ?)').run(code, owner.id, cleanText(body.note, 60) || null, expires);
-      return { status: 201, body: { code, expiresAt: `${expires.replace(' ', 'T')}Z` } };
+      const circle = body.circle === 'friend' ? 'friend' : 'family';
+      db.prepare('INSERT INTO invites (code, created_by, note, expires_at, circle) VALUES (?, ?, ?, ?, ?)').run(code, owner.id, cleanText(body.note, 60) || null, expires, circle);
+      return { status: 201, body: { code, circle, expiresAt: `${expires.replace(' ', 'T')}Z` } };
     },
 
     'GET /api/admin/backups': (req) => {
@@ -669,11 +697,11 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     // Family sharing
     'GET /api/me/sharing': (req) => {
       const user = requireUser(req);
-      return { status: 200, body: { sharing: isSharing(user.id) } };
+      return { status: 200, body: { sharing: user.circle !== 'friend' && isSharing(user.id) } };
     },
 
     'PUT /api/me/sharing': async (req) => {
-      const user = requireUser(req);
+      const user = requireFamily(req);
       const sharing = (await readJson(req)).sharing === true;
       setSetting(`share:${user.id}`, sharing ? 'true' : 'false');
       return { status: 200, body: { sharing } };
@@ -681,8 +709,8 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
 
     // Libraries the rest of the family shares with you (read-only, books on their shelves only).
     'GET /api/family': (req) => {
-      const user = requireUser(req);
-      const members = db.prepare('SELECT id, email, display_name, role, color FROM users WHERE id != ? ORDER BY created_at').all(user.id)
+      const user = requireFamily(req);
+      const members = db.prepare("SELECT id, email, display_name, role, color, circle FROM users WHERE id != ? AND circle != 'friend' ORDER BY created_at").all(user.id)
         .filter(u => isSharing(u.id))
         .map(u => {
           const shelf = db.prepare('SELECT id, data FROM books WHERE user_id = ?').all(u.id)
@@ -728,12 +756,12 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
 
     // Family reading challenges. Everyone in the library can see them and choose to join.
     'GET /api/challenges': (req) => {
-      const user = requireUser(req);
+      const user = requireFamily(req);
       return { status: 200, body: { challenges: listChallenges(user) } };
     },
 
     'POST /api/challenges': async (req) => {
-      const user = requireUser(req);
+      const user = requireFamily(req);
       const body = await readJson(req);
       const name = cleanText(body.name, 80);
       const target = Number(body.target);
@@ -953,7 +981,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     const user = requireUser(req);
     // Your own covers, and covers from family members who share their library.
     const owner = db.prepare("SELECT user_id FROM books WHERE json_extract(data, '$.coverFile') = ?").get(file);
-    const allowed = owner && (owner.user_id === user.id || isSharing(owner.user_id));
+    const allowed = owner && (owner.user_id === user.id || (user.circle !== 'friend' && sharesWithFamily(owner.user_id)));
     const full = allowed && covers.filePath(file);
     if (!full) throw new HttpError(404, 'Cover not found.');
     const ext = path.extname(full).slice(1);

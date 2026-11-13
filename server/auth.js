@@ -33,7 +33,7 @@ export function createSession(db, userId) {
 export function userForSession(db, token) {
   if (!token) return null;
   const row = db.prepare(`
-    SELECT u.id, u.email, u.display_name, u.role, u.color, s.expires_at
+    SELECT u.id, u.email, u.display_name, u.role, u.color, u.circle, s.expires_at
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ?
   `).get(sha256(token));
@@ -60,7 +60,8 @@ export function publicUser(row) {
     email: row.email,
     displayName: row.display_name,
     role: row.role,
-    color: row.color
+    color: row.color,
+    circle: row.circle === 'friend' ? 'friend' : 'family'
   };
 }
 

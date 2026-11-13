@@ -95,7 +95,8 @@ api.dismissRelease = (id) => request('POST', '/api/new-releases/dismiss', { id }
 // Invites (owner)
 api.setSignupMode = (mode) => request('PUT', '/api/admin/signups', { mode });
 api.listInvites = () => request('GET', '/api/admin/invites').then(d => d.invites);
-api.createInvite = (note, days) => request('POST', '/api/admin/invites', { note, days });
+api.createInvite = (note, days, circle) => request('POST', '/api/admin/invites', { note, days, circle });
+api.setCircle = (userId, circle) => request('PUT', '/api/admin/circle', { userId, circle });
 api.revokeInvite = (code) => request('DELETE', `/api/admin/invites/${encodeURIComponent(code)}`);
 
 // Personal preferences (e.g. your public library for Libby)

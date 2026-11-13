@@ -9,6 +9,7 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 ## Accounts
 
 - The first account created becomes the library's **Owner**; everyone after that is a **Member**.
+- Every account is **Family** or **Friend**. Family can share shelves (Family Shelves, "Also on Mom's shelf") and use Family Challenges. Friends have their own library and all the personal features, but don't see the family features and are never shown to the family. The Owner chooses when creating an invite ("This person is: Family / A friend") and can change it any time in Settings → Accounts. Accounts that existed before this setting stay Family; people who sign up without an invite (when "anyone" is allowed) start as Friend.
 - Each account has its own books. Nobody can see or change another person's books.
 - Passwords are stored securely hashed (scrypt); sign-in uses a secure cookie that lasts 90 days.
 - **Sign-ups are invite-only by default.** The Owner creates invite codes in Settings → Family accounts (each works once, valid 1/7/30 days) and sends the link (`https://your-server/?invite=CODE`), which fills in the code. Settings also lets the Owner switch to "anyone" or "nobody". Server default can be set with `SIGNUP_MODE=invite|open|closed`.
