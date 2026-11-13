@@ -42,7 +42,14 @@ import {
   Tags,
   Quote,
   Flag,
-  BellRing
+  BellRing,
+  Activity,
+  Compass,
+  MessagesSquare,
+  ListOrdered,
+  Timer,
+  Gift,
+  CircleSlash
 } from 'lucide-react';
 import { api } from './src/api.js';
 import EditBookModal from './src/EditBookModal.jsx';
@@ -72,6 +79,17 @@ import FindItLinks from './src/FindItLinks.jsx';
 import QuotesPage from './src/QuotesPage.jsx';
 import ChallengesPage from './src/ChallengesPage.jsx';
 import { overdueBooks, reminderText, shareOrCopy } from './src/lending.js';
+import BookInfoPanel from './src/BookInfoPanel.jsx';
+import ReviewPanel from './src/ReviewPanel.jsx';
+import MoodPanel from './src/MoodPanel.jsx';
+import SharePanel from './src/SharePanel.jsx';
+import ActivityPage from './src/ActivityPage.jsx';
+import DiscoverPage from './src/DiscoverPage.jsx';
+import ClubsPage from './src/ClubsPage.jsx';
+import ListsPage from './src/ListsPage.jsx';
+import ReadingLogPage from './src/ReadingLogPage.jsx';
+import GiftsPage from './src/GiftsPage.jsx';
+import WishlistAlerts from './src/WishlistAlerts.jsx';
 import { toIsbn13 } from './shared/isbn.js';
 
 // Fallback background palettes when an image is loading or unavailable
@@ -113,6 +131,8 @@ export default function App() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [newReleases, setNewReleases] = useState(null); // { releases, authorsChecked } or { error }
   const [prefs, setPrefs] = useState({}); // e.g. { libbyLibrary: 'nypl' }
+  const [inboxCount, setInboxCount] = useState(0); // books recommended to you, not answered yet
+  const [navTick, setNavTick] = useState(0); // changes on every menu tap, so pages reload fresh
   const loadNewReleases = () => {
     setNewReleases(null);
     api.newReleases().then(setNewReleases).catch(err => setNewReleases({ error: err.message, releases: [] }));
@@ -161,6 +181,7 @@ export default function App() {
     setLibraryError(null);
     api.getSettings().then(setSettings).catch(() => setSettings(null));
     api.getPrefs().then(setPrefs).catch(() => setPrefs({}));
+    api.recommendations().then(r => setInboxCount(r.inbox.length)).catch(() => setInboxCount(0));
     loadFamily();
     api.listBooks()
       .then((list) => { setBooks(list); if (list.length) loadNewReleases(); else setNewReleases({ releases: [], authorsChecked: 0 }); })
@@ -193,6 +214,26 @@ export default function App() {
       handleApiError(err);
       return null;
     }
+  };
+
+  // A book the server changed by itself (e.g. after filling in its description): show the new version.
+  const onBookSaved = (saved) => {
+    if (!saved) return;
+    setBooks(prev => prev.map(b => (b.id === saved.id ? saved : b)));
+    setSelectedBook(prev => (prev && prev.id === saved.id ? saved : prev));
+  };
+
+  // Put a book someone recommended (or from a list or Discover) on your wishlist.
+  const addRefToWishlist = async (ref) => {
+    const exists = booksRef.current.find(b => String(b.workTitle).toLowerCase() === String(ref.title).toLowerCase() &&
+      String(b.author).split(',')[0].trim().toLowerCase() === String(ref.author).split(',')[0].trim().toLowerCase());
+    if (exists) return exists;
+    return addBook({
+      workTitle: ref.title, author: ref.author, owned: false, readingStatus: 'Unread', shelfLocation: '',
+      customCoverUrl: ref.cover || null, workKey: ref.workKey || null,
+      theme: COVER_THEMES[Math.floor(Math.random() * COVER_THEMES.length)],
+      editions: [{ id: `ed-${Date.now()}`, title: ref.title, language: 'English', format: 'Physical Print', isbn: ref.isbn || 'Pending Scan', published: 'Unknown', publisher: 'Unknown' }]
+    });
   };
 
   // Ask Hardcover which series a newly added book is in (in the background).
@@ -392,6 +433,7 @@ export default function App() {
       reading: books.filter(b => b.readingStatus === 'Reading' && b.owned !== false).length,
       unread: books.filter(b => b.readingStatus === 'Unread' && b.owned !== false).length,
       completed: books.filter(b => b.readingStatus === 'Completed' && b.owned !== false).length,
+      dnf: books.filter(b => b.readingStatus === 'DNF').length,
       wishlist: books.filter(b => b.owned === false).length,
       lent: books.filter(b => currentLoan(b)).length,
       authors: libraryAuthors.length,
@@ -416,6 +458,7 @@ export default function App() {
       if (activeSection === 'reading') return b.readingStatus === 'Reading' && b.owned !== false;
       if (activeSection === 'unread') return b.readingStatus === 'Unread' && b.owned !== false;
       if (activeSection === 'completed') return b.readingStatus === 'Completed' && b.owned !== false;
+      if (activeSection === 'dnf') return b.readingStatus === 'DNF';
       if (activeSection === 'wishlist') return b.owned === false;
       if (activeSection === 'lent') return Boolean(currentLoan(b));
       if (activeSection.startsWith('shelf:')) return hasTag(b, activeSection.slice(6));
@@ -722,7 +765,7 @@ export default function App() {
 
       {/* SIDEBAR */}
       <aside
-        onClick={(e) => { if (e.target.closest('button')) setIsSidebarOpen(false); }}
+        onClick={(e) => { if (e.target.closest('button')) { setIsSidebarOpen(false); setNavTick(t => t + 1); } }}
         className={`fixed inset-y-0 left-0 z-40 md:static md:z-20 md:translate-x-0 transform transition-transform duration-200 ${
           isSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         } w-64 flex-shrink-0 bg-[#f4f4f7] md:bg-[#f4f4f7]/95 backdrop-blur-2xl border-r border-slate-200/80 flex flex-col justify-between p-4`}
@@ -842,6 +885,21 @@ export default function App() {
                 {counts.completed}
               </span>
             </button>
+
+            {counts.dnf > 0 && (
+              <button
+                onClick={() => { setActiveSection('dnf'); setCurrentPage(1); }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                  activeSection === 'dnf' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <CircleSlash className="w-4 h-4" />
+                  <span>Did Not Finish</span>
+                </div>
+                <span className={`text-[11px] font-normal ${activeSection === 'dnf' ? 'text-orange-100' : 'text-slate-400'}`}>{counts.dnf}</span>
+              </button>
+            )}
 
             <button
               onClick={() => { setActiveSection('wishlist'); setCurrentPage(1); }}
@@ -998,6 +1056,80 @@ export default function App() {
               </div>
             </button>
             </>)}
+
+            <button
+              onClick={() => { setActiveSection('activity'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'activity' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Activity className="w-4 h-4" />
+                <span>Activity</span>
+              </div>
+              {inboxCount > 0 && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-500 text-white" title="Books recommended to you">{inboxCount}</span>}
+            </button>
+
+            <button
+              onClick={() => { setActiveSection('discover'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'discover' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Compass className="w-4 h-4" />
+                <span>Discover</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => { setActiveSection('clubs'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'clubs' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <MessagesSquare className="w-4 h-4" />
+                <span>Book Clubs</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => { setActiveSection('lists'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'lists' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <ListOrdered className="w-4 h-4" />
+                <span>Lists</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => { setActiveSection('readinglog'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'readinglog' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Timer className="w-4 h-4" />
+                <span>Reading Log</span>
+              </div>
+            </button>
+            {isFamily && (
+            <button
+              onClick={() => { setActiveSection('gifts'); setCurrentPage(1); }}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                activeSection === 'gifts' ? 'bg-orange-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Gift className="w-4 h-4" />
+                <span>Gift Ideas</span>
+              </div>
+            </button>
+            )}
 
             <button
               onClick={() => { setActiveSection('quotes'); setCurrentPage(1); }}
@@ -1168,7 +1300,15 @@ export default function App() {
             <FamilyPage family={family} myBooks={books} onOpenSettings={() => setIsSettingsOpen(true)} onRefresh={loadFamily} />
           )}
 
-          {activeSection === 'challenges' && isFamily && <ChallengesPage />}
+          {activeSection === 'challenges' && isFamily && <ChallengesPage key={navTick} />}
+          {activeSection === 'activity' && (
+            <ActivityPage key={navTick} onAddToWishlist={addRefToWishlist} onOpenSettings={() => setIsSettingsOpen(true)} onInboxChange={setInboxCount} />
+          )}
+          {activeSection === 'discover' && <DiscoverPage key={navTick} onAddToWishlist={addRefToWishlist} />}
+          {activeSection === 'clubs' && <ClubsPage key={navTick} myBooks={books} />}
+          {activeSection === 'lists' && <ListsPage key={navTick} myBooks={books} onAddToWishlist={addRefToWishlist} />}
+          {activeSection === 'readinglog' && <ReadingLogPage key={navTick} isFamily={isFamily} />}
+          {activeSection === 'gifts' && isFamily && <GiftsPage key={navTick} />}
 
           {activeSection === 'quotes' && (
             <QuotesPage books={books} onOpenBook={(book) => { setSelectedBook(book); setActiveEditionIndex(0); }} />
@@ -1190,7 +1330,7 @@ export default function App() {
             </div>
           )}
 
-          {!['authors', 'series', 'year', 'family', 'new', 'challenges', 'quotes'].includes(activeSection) && (
+          {!['authors', 'series', 'year', 'family', 'new', 'challenges', 'quotes', 'activity', 'discover', 'clubs', 'lists', 'readinglog', 'gifts'].includes(activeSection) && (
             <div className="space-y-6">
               <div className="flex items-baseline justify-between">
                 <div>
@@ -1202,6 +1342,7 @@ export default function App() {
                     {activeSection === 'wishlist' && 'Missing / Wishlist'}
                     {activeSection === 'lent' && 'Lent Out'}
                     {activeShelf && `${activeShelf} (${filteredBooks.length})`}
+                    {activeSection === 'dnf' && `Did Not Finish (${filteredBooks.length})`}
                   </h2>
                   {activeShelf && (
                     <div className="mt-1.5 flex gap-2">
@@ -1212,6 +1353,9 @@ export default function App() {
                         <Trash2 className="w-3.5 h-3.5" /> Remove shelf
                       </button>
                     </div>
+                  )}
+                  {activeSection === 'wishlist' && counts.wishlist > 0 && (
+                    <div className="mt-2 mb-1"><WishlistAlerts books={books} hasLibrary={Boolean(prefs.libbyLibrary)} onOpenSettings={() => setIsSettingsOpen(true)} /></div>
                   )}
                   {activeSection === 'wishlist' && counts.wishlist > 0 && (
                     <button onClick={() => setIsShoppingListOpen(true)} className="mt-1.5 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5">
@@ -1333,7 +1477,7 @@ export default function App() {
                           </td>
                           <td className="py-3 px-4">
                             <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700">
-                              {book.readingStatus}
+                              {book.readingStatus === 'DNF' ? 'Did not finish' : book.readingStatus}
                             </span>
                             {book.readingStatus === 'Reading' && progressOf(book) && (
                               <div className="text-[10px] text-orange-600 font-semibold mt-0.5">
@@ -1476,8 +1620,8 @@ export default function App() {
                     <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
                       Reading Status for {currentUser.displayName}
                     </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {['Unread', 'Reading', 'Completed'].map(status => (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {['Unread', 'Reading', 'Completed', 'DNF'].map(status => (
                         <button
                           key={status}
                           onClick={() => updateBook(selectedBook.id, statusChanges(selectedBook, status))}
@@ -1487,7 +1631,7 @@ export default function App() {
                               : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                           }`}
                         >
-                          {status}
+                          {status === 'DNF' ? 'Did not finish' : status}
                         </button>
                       ))}
                     </div>
@@ -1499,7 +1643,13 @@ export default function App() {
                 <ProgressPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
               )}
 
+              <BookInfoPanel book={selectedBook} onBookSaved={onBookSaved} />
+
               <ReadingPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+
+              <ReviewPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+
+              <MoodPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
 
               <QuotesPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
 
@@ -1509,7 +1659,9 @@ export default function App() {
                 <CollectorPanel book={selectedBook} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
               )}
 
-              <FindItLinks book={selectedBook} prefs={prefs} />
+              <FindItLinks book={selectedBook} prefs={prefs} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
+
+              <SharePanel book={selectedBook} />
 
               {selectedBook.owned !== false && (
                 <LendPanel book={selectedBook} fromName={currentUser.displayName} onUpdate={(changes) => updateBook(selectedBook.id, changes)} />
@@ -1762,7 +1914,7 @@ export default function App() {
       )}
 
       {isSettingsOpen && settings && (
-        <SettingsModal settings={settings} currentUser={currentUser} prefs={prefs} onPrefsChange={setPrefs} onChange={setSettings} onFamilyChange={loadFamily} onImport={() => setIsImportOpen(true)} onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal settings={settings} currentUser={currentUser} prefs={prefs} onPrefsChange={setPrefs} books={books} onBookSaved={onBookSaved} onChange={setSettings} onFamilyChange={loadFamily} onImport={() => setIsImportOpen(true)} onClose={() => setIsSettingsOpen(false)} />
       )}
 
       {/* COVER PICKERS */}
@@ -1975,7 +2127,7 @@ function AppleBookCard({ book, onClick, onAuthorClick }) {
         <div className="flex items-center justify-between pt-1 text-[10px]">
           <span className="text-slate-400 flex items-center gap-1 font-medium">
             <span className={`w-1.5 h-1.5 rounded-full ${book.readingStatus === 'Reading' ? 'bg-orange-500' : book.readingStatus === 'Completed' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-            {book.readingStatus}
+            {book.readingStatus === 'DNF' ? 'Did not finish' : book.readingStatus}
           </span>
           {book.series && (
             <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">

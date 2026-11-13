@@ -583,5 +583,93 @@ export function createLookup({ fetchImpl = globalThis.fetch, googleApiKey = '' }
     return result;
   });
 
-  return { lookupIsbn, searchBooks, getCoverOptions, searchAuthors, authorWorks, recentByAuthor, mainTitleKey };
+  // ---------- about a book: description, genres, rating by other readers ----------
+  const stripHtml = (text) => String(text || '')
+    .replace(/<br\s*\/?>|<\/p>/gi, '\n').replace(/<[^>]+>/g, '')
+    .replace(/&(quot|apos|amp|lt|gt|nbsp|hellip|mdash|ndash|rsquo|lsquo|rdquo|ldquo);/g, (_, n) => ({ quot: '"', apos: "'", amp: '&', lt: '<', gt: '>', nbsp: ' ', hellip: '…', mdash: '—', ndash: '–', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“' })[n])
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/\n{3,}/g, '\n\n').trim();
+  const JUNK_SUBJECT = /accessible book|protected daisy|in library|large type|nyt:|open_syllabus|lending library|overdrive|reading level|fiction, general|^general$|^fiction$|^novel$|^english|award|translations|^[a-z]+:|\d{4}|textbooks?|juvenile works|long now|literature/i;
+  const tidyGenre = (g) => String(g || '').trim().replace(/\s*\(.*\)$/, '').replace(/\b\w/g, c => c.toUpperCase());
+
+  const bookInfo = ({ isbn13 = '', workKey = '', title = '', author = '' }) =>
+    cached(`info:${isbn13}|${workKey}|${normalizeTitle(title)}|${authorKey(author)}`, async () => {
+      const googleQuery = isbn13 ? `isbn:${isbn13}` : `intitle:${title} inauthor:${authorKey(author)}`;
+      const work = workKey && /^\/works\/OL\d+W$/.test(workKey) ? workKey : null;
+      const [google, olWork, olRatings] = await Promise.all([
+        title || isbn13 ? getJson(googleUrl(googleQuery, '&maxResults=5&printType=books')) : null,
+        work ? getJson(`https://openlibrary.org${work}.json`) : null,
+        work ? getJson(`https://openlibrary.org${work}/ratings.json`) : null
+      ]);
+      // With an ISBN, trust Google's match; otherwise insist on the same title and author.
+      const items = google?.items || [];
+      const g = (isbn13 ? items[0] : items.find(it => normalizeTitle(it.volumeInfo?.title) === normalizeTitle(title) &&
+        (it.volumeInfo?.authors || []).some(a => authorKey(a) === authorKey(author))))?.volumeInfo;
+      const olDescription = typeof olWork?.description === 'string' ? olWork.description : olWork?.description?.value;
+      const description = stripHtml(g?.description || olDescription || '') || null;
+      const seen = new Set();
+      const genres = [
+        ...(g?.categories || []).flatMap(c => String(c).split(/\s*\/\s*/)),
+        ...(olWork?.subjects || []).slice(0, 25)
+      ]
+        .map(tidyGenre)
+        .filter(x => x && x.length <= 30 && !JUNK_SUBJECT.test(x) && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase()))
+        .slice(0, 6);
+      const ratings = [
+        g?.averageRating ? { average: g.averageRating, count: g.ratingsCount || 0, source: 'Google Books' } : null,
+        olRatings?.summary?.average ? { average: olRatings.summary.average, count: olRatings.summary.count || 0, source: 'Open Library' } : null
+      ].filter(Boolean).sort((a, b) => b.count - a.count);
+      if (!description && genres.length === 0 && ratings.length === 0) return null;
+      return { description, genres, communityRating: ratings[0] || null };
+    });
+
+  // Books in a genre (for "More in genres you love").
+  const booksInGenre = (genre) => cached(`genre:${genre.toLowerCase()}`, async () => {
+    const data = await getJson(googleUrl(`subject:"${genre}"`, '&maxResults=30&printType=books&langRestrict=en&orderBy=relevance'));
+    const seen = new Set();
+    const out = [];
+    for (const item of data?.items || []) {
+      const v = item.volumeInfo || {};
+      if (!v.title || !(v.authors || []).length || v.language !== 'en' || JUNK_TITLE.test(v.title) || !looksEnglish(v.title)) continue;
+      const key = mainTitleKey(v.title);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        id: `g-${item.id}`, title: v.title, author: v.authors[0], cover: googleCover(v.imageLinks),
+        isbn13: (v.industryIdentifiers || []).find(i => i.type === 'ISBN_13')?.identifier || null,
+        rating: v.averageRating || null, titleKey: key
+      });
+    }
+    return out;
+  });
+
+  // Ebook price on Google Play (US), if it's for sale.
+  const ebookPrice = ({ isbn13 = '', title = '', author = '' }) => cached(`price:${isbn13}|${normalizeTitle(title)}`, async () => {
+    const q = isbn13 ? `isbn:${isbn13}` : `intitle:${title} inauthor:${authorKey(author)}`;
+    const data = await getJson(googleUrl(q, '&maxResults=10&country=US&filter=ebooks'));
+    const match = (data?.items || []).find(it => it.saleInfo?.saleability === 'FOR_SALE' && it.saleInfo?.retailPrice?.amount > 0 &&
+      (isbn13 || normalizeTitle(it.volumeInfo?.title) === normalizeTitle(title)) &&
+      (it.volumeInfo?.authors || []).some(a => !author || authorKey(a) === authorKey(author)));
+    if (!match) return null;
+    const p = match.saleInfo.retailPrice;
+    return { amount: p.amount, currency: p.currencyCode || 'USD', url: match.saleInfo.buyLink || null, source: 'Google Play' };
+  });
+
+  // Is it on your public library's Libby shelf right now? (OverDrive's public catalog search)
+  const libraryAvailability = ({ library, title, author }) => cached(`libby:${library}|${normalizeTitle(title)}|${authorKey(author)}`, async () => {
+    if (!library || !title) return null;
+    const url = `https://thunder.api.overdrive.com/v2/libraries/${encodeURIComponent(library)}/media?query=${encodeURIComponent(`${title} ${authorKey(author)}`)}&perPage=20`;
+    const data = await getJson(url);
+    const matches = (data?.items || []).filter(it => mainTitleKey(it.title) === mainTitleKey(title) &&
+      (!author || authorKey(it.firstCreatorName || it.creators?.[0]?.name) === authorKey(author)));
+    if (matches.length === 0) return { found: false };
+    const formats = matches.map(it => ({
+      type: it.type?.name || it.type?.id || 'Book',
+      available: Boolean(it.isAvailable),
+      waitDays: Number.isFinite(it.estimatedWaitDays) ? it.estimatedWaitDays : null
+    }));
+    return { found: true, available: formats.some(f => f.available), formats };
+  });
+
+  return { lookupIsbn, searchBooks, getCoverOptions, searchAuthors, authorWorks, recentByAuthor, mainTitleKey, bookInfo, booksInGenre, ebookPrice, libraryAvailability };
 }

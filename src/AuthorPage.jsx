@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Compass, Search, RefreshCw, AlertTriangle, ArrowLeft, Heart, Library, EyeOff, Eye, X, CheckCircle2, Users
+  Compass, Search, RefreshCw, AlertTriangle, ArrowLeft, Heart, Library, EyeOff, Eye, X, CheckCircle2, Users, Bell, BellOff
 } from 'lucide-react';
 import { api } from './api.js';
 import { toIsbn13 } from '../shared/isbn.js';
@@ -52,6 +52,13 @@ export default function AuthorPage({ books, libraryAuthors, request, onOpenBook,
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState('');
   const [current, setCurrent] = useState(null); // { author, books }
+  // Authors you follow: their new books show in "New for You" even if you don't own any yet.
+  const [follows, setFollows] = useState([]);
+  useEffect(() => { api.follows().then(setFollows).catch(() => {}); }, []);
+  const following = (name) => follows.some(a => a.name.toLowerCase() === String(name).toLowerCase());
+  const toggleFollow = async (author) => {
+    try { setFollows(await api.setFollow(author.name, !following(author.name), author.key)); } catch { /* try again later */ }
+  };
   const [isLoadingWorks, setIsLoadingWorks] = useState(false);
   const [filter, setFilter] = useState('all');
   const [showHidden, setShowHidden] = useState(false);
@@ -232,6 +239,10 @@ export default function AuthorPage({ books, libraryAuthors, request, onOpenBook,
               <h3 className="text-xl font-bold text-slate-900">{current.author.name}</h3>
               {years(current.author) && <p className="text-xs text-slate-400">{years(current.author)}</p>}
             </div>
+            <button onClick={() => toggleFollow(current.author)} aria-pressed={following(current.author.name)}
+              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 flex-shrink-0 border ${following(current.author.name) ? 'bg-white border-slate-200 text-slate-600' : 'bg-orange-500 border-orange-500 text-white hover:bg-orange-600'}`}>
+              {following(current.author.name) ? <><BellOff className="w-3.5 h-3.5" /> Following</> : <><Bell className="w-3.5 h-3.5" /> Follow</>}
+            </button>
           </div>
 
           {isLoadingWorks && (

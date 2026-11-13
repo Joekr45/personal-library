@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ScanBarcode, X, RefreshCw, AlertTriangle, CheckCircle2, Search, Keyboard, Heart, Library, BookOpen, Info, ImagePlus, ArrowLeft,
-  BadgeCheck, Users
+  BadgeCheck, Users, Layers, Trash2
 } from 'lucide-react';
 import { api } from './api.js';
 import CoverPicker from './CoverPicker.jsx';
@@ -59,6 +59,7 @@ const TABS = [
   { id: 'camera', label: 'Scan', icon: ScanBarcode },
   { id: 'isbn', label: 'Type ISBN', icon: Keyboard },
   { id: 'search', label: 'Find by Title', icon: Search },
+  { id: 'shelf', label: 'Whole Shelf', icon: Layers },
   { id: 'check', label: 'Own it?', icon: BadgeCheck }
 ];
 
@@ -68,7 +69,14 @@ const TABS = [
 export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onManualAdd, coverThemes, initialBook = null, family = null, initialMode = null }) {
   const [mode, setMode] = useState(initialBook ? 'search' : initialMode || 'camera');
   // "Scan" and "Do I own it?" both use the camera.
-  const usesCamera = mode === 'camera' || mode === 'check';
+  const usesCamera = mode === 'camera' || mode === 'check' || mode === 'shelf';
+  // "Whole Shelf": scan book after book without stopping; they collect in a list and are added together.
+  const [shelfQueue, setShelfQueue] = useState([]); // [{ isbn13, status: 'looking'|'found'|'notfound'|'have', book }]
+  const shelfQueueRef = useRef(shelfQueue);
+  shelfQueueRef.current = shelfQueue;
+  const [shelfInput, setShelfInput] = useState('');
+  const [shelfNote, setShelfNote] = useState('');
+  const [shelfAdding, setShelfAdding] = useState(false);
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const [checkResult, setCheckResult] = useState(null);
@@ -140,6 +148,11 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
           timerRef.current = null;
           setCameraState('paused');
           playBeep();
+          if (modeRef.current === 'shelf') {
+            queueShelfCode(text);
+            setTimeout(() => { if (modeRef.current === 'shelf') startScanLoop(); }, 1200); // a moment to move to the next book
+            return;
+          }
           await (modeRef.current === 'check' ? runCheck(text) : lookUp(text));
           return;
         }
@@ -185,7 +198,7 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
   };
 
   useEffect(() => {
-    if (mode === 'camera' || mode === 'check') startCamera();
+    if (mode === 'camera' || mode === 'check' || mode === 'shelf') startCamera();
     else stopCamera();
     return stopCamera;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -363,6 +376,51 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
     }
   };
 
+  // ---------- whole shelf ----------
+  const queueShelfCode = async (raw) => {
+    const code = classifyCode(raw);
+    if (code.kind !== 'isbn') {
+      setShelfNote(code.kind === 'upc' ? 'That was a store barcode (UPC), not the ISBN. Skipped it.' : 'Couldn\'t read that barcode. Skipped it.');
+      return;
+    }
+    if (shelfQueueRef.current.some(q => q.isbn13 === code.isbn13)) { setShelfNote('Already in the list.'); return; }
+    setShelfNote('');
+    const have = booksRef.current.some(b => (b.editions || []).some(e => toIsbn13(e.isbn) === code.isbn13));
+    setShelfQueue(prev => [...prev, { isbn13: code.isbn13, status: have ? 'have' : 'looking' }]);
+    if (have) return;
+    let data = null;
+    try { data = await api.lookupCode(code.isbn13); } catch { data = null; }
+    setShelfQueue(prev => prev.map(q => (q.isbn13 === code.isbn13
+      ? (data?.found ? { ...q, status: 'found', book: data.book } : { ...q, status: 'notfound' })
+      : q)));
+  };
+  const addShelf = async () => {
+    setShelfAdding(true);
+    let added = 0;
+    for (const q of shelfQueueRef.current.filter(x => x.status === 'found')) {
+      const r = q.book;
+      const saved = await onAdd({
+        workTitle: r.title,
+        author: r.authors?.length ? r.authors.join(', ') : 'Unknown Author',
+        owned: true, readingStatus: 'Unread', shelfLocation: 'Living Room Shelf',
+        customCoverUrl: r.covers?.[0]?.url || null,
+        description: r.description || null, workKey: r.workKey || null,
+        theme: coverThemes[Math.floor(Math.random() * coverThemes.length)],
+        editions: [{
+          id: `ed-${Date.now()}-${added}`, title: r.title, language: r.language || 'English', format: r.format || 'Physical Print',
+          isbn: r.isbn13, isbn10: r.isbn10 || null, published: r.publishedDate || 'Unknown', publisher: r.publisher || 'Unknown', pageCount: r.pageCount || null
+        }]
+      });
+      if (saved) {
+        added++;
+        if (r.covers?.[0]?.url) onSaveCover(saved.id, { url: r.covers[0].url }, { quiet: true });
+        setShelfQueue(prev => prev.filter(x => x.isbn13 !== q.isbn13));
+      }
+    }
+    setShelfAdding(false);
+    setShelfNote(added ? `Added ${added} book${added === 1 ? '' : 's'} to your shelf. You can change any cover from the book's page.` : '');
+  };
+
   // ---------- title search ----------
   const runSearch = async (e) => {
     e?.preventDefault();
@@ -483,6 +541,42 @@ export default function ScannerModal({ books, onClose, onAdd, onSaveCover, onMan
               )}
               {cameraError && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl">{cameraError}</div>
+              )}
+            </div>
+          )}
+
+          {/* --- Whole shelf --- */}
+          {mode === 'shelf' && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-slate-500 text-center">Scan each book's barcode one after another. They collect below, then add them all at once.</p>
+              <form onSubmit={(e) => { e.preventDefault(); if (shelfInput.trim()) { queueShelfCode(shelfInput); setShelfInput(''); } }} className="flex gap-2">
+                <input value={shelfInput} onChange={(e) => setShelfInput(e.target.value)} inputMode="numeric" placeholder="…or type an ISBN" aria-label="Shelf ISBN" className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono" />
+                <button type="submit" disabled={!shelfInput.trim()} className="px-3 py-2 bg-slate-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold">Add to list</button>
+              </form>
+              {shelfNote && <p className="text-[11px] text-slate-600 bg-slate-50 rounded-lg p-2">{shelfNote}</p>}
+              {shelfQueue.length > 0 && (
+                <ul className="border border-slate-200 rounded-xl divide-y divide-slate-100" aria-label="Scanned books">
+                  {shelfQueue.map(q => (
+                    <li key={q.isbn13} className="p-2.5 flex items-center gap-2.5 text-xs">
+                      {q.book?.covers?.[0]?.url ? <img src={q.book.covers[0].url} alt="" className="w-8 h-12 object-cover rounded" /> : <div className="w-8 h-12 rounded bg-slate-100" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{q.book?.title || q.isbn13}</p>
+                        <p className="text-[11px] truncate">
+                          {q.status === 'looking' && <span className="text-slate-400">Looking it up…</span>}
+                          {q.status === 'found' && <span className="text-slate-500">{(q.book.authors || []).join(', ')}</span>}
+                          {q.status === 'notfound' && <span className="text-amber-700">Not found in the catalogs — add it with "Type ISBN" later</span>}
+                          {q.status === 'have' && <span className="text-emerald-700">Already in your library</span>}
+                        </p>
+                      </div>
+                      <button onClick={() => setShelfQueue(prev => prev.filter(x => x.isbn13 !== q.isbn13))} aria-label="Remove from list" className="text-slate-300 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {shelfQueue.some(q => q.status === 'found') && (
+                <button onClick={addShelf} disabled={shelfAdding || shelfQueue.some(q => q.status === 'looking')} className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">
+                  {shelfAdding ? 'Adding…' : `Add all ${shelfQueue.filter(q => q.status === 'found').length} to my shelf`}
+                </button>
               )}
             </div>
           )}

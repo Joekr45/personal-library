@@ -25,9 +25,30 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **My Year** (menu): books finished this year, a **yearly goal** with "ahead/behind schedule", books per month, pages, average rating, top author, and **Up next in your series**.
 - Book lists have a **sort menu** (title, author, recently added, recently finished, rating, year published — remembered on each device) and **filters** (shelf, language, format, rating).
 
+## About each book
+
+- **About this book** (book page): the description, genres and average rating from other readers are filled in from Open Library and Google Books the first time you open a book (or all at once: **Settings → My books → Fill in descriptions & genres**). Below it, ratings and shared reviews from people you know.
+- **My review**: separate from private notes; tick "Share with family & friends" to show it to others.
+- **How it felt**: moods (dark, funny, hopeful…), pace (slow/medium/fast) and content warnings. Filters can use genre, mood and pace.
+- **Did not finish**: a fourth reading status, with its own menu section (shown once you have one).
+- **Reading updates**: while reading, post the page you're on with a thought ("Page 120: so creepy!"); they form a timeline on the book and appear in the activity feed.
+
+## People (family and friends)
+
+- **Activity** (menu): what everyone is starting, finishing, rating, reviewing and posting about, plus **Recommended for you** (with Add to wishlist / No thanks). Turn your own activity off in **Settings → Activity feed**; notes and private reviews are never shared.
+- **Recommend to someone** (book page): send a book with a note; it lands in their Activity page.
+- **Book Clubs** (menu): read a book together. See where each member is (from their own copy) and discuss it; posts about a page you haven't reached are hidden until you tap them.
+- **Lists** (menu): ranked lists with notes ("Books to read before the movie"). Private by default; **Share** shows a list to everyone. Add books from any book page.
+- **Discover** (menu): books people you know rated 4★+, and books in your favourite genres.
+- **Follow** an author (Authors page): their new books appear in **New for You** even if you don't own any yet.
+- **Reading Log** (menu): big +5/+10/+15/+30 minute buttons, a daily goal with stars, a reading streak (days you logged minutes, posted an update, moved your page or finished a book), and for family, this week's **family reading-time board**.
+- **Gift Ideas** (menu, family only): tick "Share my wishlist with the family"; others can secretly mark "I'll get this" so nobody buys the same book. The wishlist's owner never sees the marks.
+
 ## Shopping & family
 
 - **Own it?** (top bar): scan or type an ISBN in a shop to see whether you already own the book (any edition or language), whether it's on your wishlist, and whether someone in the family has it. Nothing is added unless you choose to.
+- **Wishlist alerts** (Wishlist page): once a day the server checks whether wishlist books are available at your library on Libby right now (needs your library in Settings) and what the ebook costs on Google Play. Set **Let me know when the ebook is under $…** on a wishlist book's page. "Check now" runs it on demand.
+- **Whole Shelf** (Add a book): scan one barcode after another without stopping; they collect in a list (books you already have and repeats are skipped), then **Add all** at once.
 - **Shopping list** (Wishlist page): wishlist grouped by author with series numbers, **Got it!** buttons, and copy/share as text.
 - **Lending** (book page): lend a book to someone (optionally with a **due back** date), mark it returned, keep the history; **Lent Out** in the menu lists what's out.
 - **Overdue reminders**: books past their due date (or out for 30+ days with no date) show in a red box on All Books and Lent Out, and the Lent Out count turns red. **Send a reminder** opens the phone's share sheet (or copies a friendly message) to send by text or email.

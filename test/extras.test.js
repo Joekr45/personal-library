@@ -114,10 +114,10 @@ test('family challenges: create, join, count finished books (re-reads too), leav
 test('upgrading an older database adds the challenge tables and keeps books', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-upgrade-'));
   const db = openDatabase(dir);
-  db.exec('DROP TABLE challenge_members; DROP TABLE challenges; ALTER TABLE users DROP COLUMN circle; ALTER TABLE invites DROP COLUMN circle; PRAGMA user_version = 4;');
+  db.exec('DROP TABLE activity; DROP TABLE recommendations; DROP TABLE club_posts; DROP TABLE club_members; DROP TABLE clubs; DROP TABLE lists; DROP TABLE reading_log; DROP TABLE reading_days; DROP TABLE gift_claims; DROP TABLE challenge_members; DROP TABLE challenges; ALTER TABLE users DROP COLUMN circle; ALTER TABLE invites DROP COLUMN circle; PRAGMA user_version = 4;');
   db.close();
   const again = openDatabase(dir);
-  assert.equal(again.prepare('PRAGMA user_version').get().user_version, 6);
+  assert.equal(again.prepare('PRAGMA user_version').get().user_version, 7);
   assert.ok(again.prepare("SELECT name FROM sqlite_master WHERE name = 'challenges'").get());
   again.close();
   fs.rmSync(dir, { recursive: true, force: true });

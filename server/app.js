@@ -9,6 +9,7 @@ import { createLookup } from './lookup.js';
 import { createCoverStore, CoverError, COVER_CONTENT_TYPES, isPrivateAddress } from './covers.js';
 import { createHardcover, HardcoverError, cleanToken } from './hardcover.js';
 import { createBackups } from './backups.js';
+import { createSocial } from './social.js';
 import { classifyCode } from '../shared/isbn.js';
 import {
   SESSION_COOKIE, hashPassword, verifyPassword, createSession, userForSession,
@@ -185,6 +186,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
 
   const cleanText = (value, max = 500) =>
     typeof value === 'string' ? value.trim().slice(0, max) : '';
+  // A list of short words/phrases: trimmed, no duplicates (ignoring capitals), limited in number.
+  const cleanList = (value, max, count) => {
+    const seen = new Set();
+    return (Array.isArray(value) ? value : [])
+      .map(t => cleanText(t, max))
+      .filter(t => t && !seen.has(t.toLowerCase()) && seen.add(t.toLowerCase()))
+      .slice(0, count);
+  };
 
   // Checks a book sent by the browser and keeps only sensible data.
   const validateBook = (input) => {
@@ -226,6 +235,42 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         .map(r => ({ started: date(r?.started), finished: date(r?.finished) }))
         .filter(r => r.started || r.finished);
     }
+    // About the book (filled in from the catalogs): description, genres, rating by other readers.
+    if (data.description !== undefined) data.description = cleanText(data.description, 8000) || null;
+    if (data.genres !== undefined) data.genres = cleanList(data.genres, 40, 12);
+    if (data.communityRating !== undefined) {
+      const r = data.communityRating;
+      const avg = Number(r?.average);
+      data.communityRating = r && avg > 0 && avg <= 5
+        ? { average: Math.round(avg * 100) / 100, count: Math.max(0, Math.round(Number(r.count) || 0)), source: cleanText(r.source, 40) || null }
+        : null;
+    }
+    if (data.infoCheckedOn !== undefined) data.infoCheckedOn = date(data.infoCheckedOn);
+    // My review (separate from private notes); shared with family & friends only if public is true.
+    if (data.review !== undefined) {
+      const r = data.review && typeof data.review === 'object' ? data.review : {};
+      const text = cleanText(r.text, 20000);
+      data.review = text ? { text, public: r.public === true, updatedOn: date(r.updatedOn) } : null;
+    }
+    // Reading updates: [{ page, text, on }]
+    if (data.updates !== undefined) {
+      data.updates = (Array.isArray(data.updates) ? data.updates : []).slice(-300)
+        .map(u => {
+          const page = Math.round(Number(u?.page));
+          return { page: page > 0 && page <= 100000 ? page : null, text: cleanText(u?.text, 2000) || null, on: date(u?.on) };
+        })
+        .filter(u => u.page || u.text);
+    }
+    // How it felt: moods, pace and content warnings.
+    if (data.moods !== undefined) data.moods = cleanList(data.moods, 30, 12);
+    if (data.pace !== undefined) data.pace = ['slow', 'medium', 'fast'].includes(data.pace) ? data.pace : null;
+    if (data.warnings !== undefined) data.warnings = cleanList(data.warnings, 60, 20);
+    if (data.dnfOn !== undefined) data.dnfOn = date(data.dnfOn);
+    if (data.targetPrice !== undefined) {
+      const t = Math.round(Number(data.targetPrice) * 100) / 100;
+      data.targetPrice = data.targetPrice !== null && data.targetPrice !== '' && t > 0 && t < 10000 ? t : null;
+    }
+    if (data.readingStatus !== undefined && !['Unread', 'Reading', 'Completed', 'DNF'].includes(data.readingStatus)) data.readingStatus = 'Unread';
     // Collector details for your copy.
     if (data.collector !== undefined) {
       const c = data.collector && typeof data.collector === 'object' ? data.collector : {};
@@ -601,6 +646,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       const data = validateBook(body);
       const id = crypto.randomUUID();
       db.prepare('INSERT INTO books (id, user_id, data) VALUES (?, ?, ?)').run(id, user.id, JSON.stringify(data));
+      recordBookChange(user.id, null, data, id);
       return { status: 201, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(id)) } };
     },
 
@@ -653,13 +699,14 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
         const name = String(b.author || '').split(',')[0].trim();
         if (name && name !== 'Unknown Author') counts.set(name, (counts.get(name) || 0) + 1);
       }
-      const authors = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name]) => name);
+      const followed = JSON.parse(getSetting(`follows:${user.id}`) || '[]').map(a => a.name);
+      const authors = [...new Set([...followed, ...[...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name]) => name)])].slice(0, 40);
 
       const found = new Map();
       for (const name of authors) {
         for (const r of await lookup.recentByAuthor(name)) {
           if (!r.date || r.date < cutoffText || have.has(r.titleKey) || dismissed.has(r.id)) continue;
-          if (!found.has(r.titleKey)) found.set(r.titleKey, { ...r, reason: `New from ${name}` });
+          if (!found.has(r.titleKey)) found.set(r.titleKey, { ...r, reason: followed.includes(name) ? `New from ${name} (you follow)` : `New from ${name}` });
         }
       }
 
@@ -920,6 +967,37 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   };
 
   // Routes with a book id in the address: /api/books/<id>
+  // Activity feed, recommendations, clubs, lists, reading log, gifts, discovery… (server/social.js)
+  const social = createSocial({ db, requireUser, requireFamily, readJson, HttpError, cleanText, getSetting, setSetting, lookup });
+  Object.assign(routes, social.routes);
+  // Never let the feed bookkeeping stop a book from saving.
+  const recordBookChange = (...args) => { try { social.recordBookChange(...args); } catch (err) { console.error('activity:', err); } };
+  if (startBackups) {
+    // Check wishlists against the library and ebook prices once a day.
+    setTimeout(() => social.checkAllWishlists(), 60 * 1000).unref?.();
+    setInterval(() => social.checkAllWishlists(), 24 * 60 * 60 * 1000).unref?.();
+  }
+
+  // Look up the description, genres and readers' rating for one of your books, and save them on it.
+  const fillBookInfo = async (req, bookId) => {
+    const user = requireUser(req);
+    const existing = db.prepare('SELECT data FROM books WHERE id = ? AND user_id = ?').get(bookId, user.id);
+    if (!existing) throw new HttpError(404, 'Book not found.');
+    const book = JSON.parse(existing.data);
+    const isbn13 = (book.editions || []).map(e => classifyCode(String(e.isbn || ''))).find(c => c?.kind === 'isbn')?.isbn13 || '';
+    const info = await lookup.bookInfo({ isbn13, workKey: book.workKey || '', title: book.workTitle, author: String(book.author || '').split(',')[0] });
+    const today = social.localDay();
+    const data = validateBook({
+      ...book,
+      ...(info?.description && !book.description ? { description: info.description } : {}),
+      ...(info?.genres?.length && !(book.genres || []).length ? { genres: info.genres } : {}),
+      ...(info?.communityRating ? { communityRating: info.communityRating } : {}),
+      infoCheckedOn: today
+    });
+    db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?").run(JSON.stringify(data), bookId, user.id);
+    return { status: 200, body: { found: Boolean(info), book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(bookId)) } };
+  };
+
   const bookRoutes = {
     PUT: async (req, bookId) => {
       const user = requireUser(req);
@@ -936,6 +1014,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
       }
       db.prepare("UPDATE books SET data = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
         .run(JSON.stringify(data), bookId, user.id);
+      recordBookChange(user.id, JSON.parse(existing.data), data, bookId);
       return { status: 200, body: { book: bookFromRow(db.prepare('SELECT id, data, created_at FROM books WHERE id = ?').get(bookId)) } };
     },
     DELETE: (req, bookId) => {
@@ -1053,6 +1132,15 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
           }
         }
         const adminUser = pathname.match(/^\/api\/admin\/users\/([0-9a-f-]{36})(\/password)?$/);
+        if (!route) {
+          const socialResult = await social.handle(req, pathname);
+          if (socialResult) return sendJson(res, socialResult.status, socialResult.body);
+          const infoRoute = pathname.match(/^\/api\/books\/([A-Za-z0-9-]{1,64})\/info$/);
+          if (infoRoute && req.method === 'POST') {
+            const r = await fillBookInfo(req, infoRoute[1]);
+            return sendJson(res, r.status, r.body);
+          }
+        }
         let result;
         if (route) result = await route(req);
         else if (coverUpload && req.method === 'POST') result = await saveBookCover(req, coverUpload[1]);
