@@ -39,7 +39,7 @@ export default function ReadingLogPage({ isFamily }) {
       <h2 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2"><Timer className="w-5 h-5 text-orange-500" /> Reading Log</h2>
       {error && <p className="text-xs text-red-700">{error}</p>}
 
-      <section className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white space-y-3 shadow-md">
+      <section className="p-5 rounded-3xl bg-orange-600 text-white space-y-3 shadow-md">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-wider font-semibold text-white/80">Today</p>

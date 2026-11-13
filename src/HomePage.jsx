@@ -91,7 +91,7 @@ export default function HomePage({ books, currentUser, overdue, inboxCount, newC
       </section>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <section className="p-4 rounded-3xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white space-y-2" aria-label="Today's reading">
+        <section className="p-4 rounded-3xl bg-orange-600 text-white space-y-2" aria-label="Today's reading">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] uppercase tracking-wider font-semibold text-white/80">Read today</p>
@@ -104,7 +104,7 @@ export default function HomePage({ books, currentUser, overdue, inboxCount, newC
             <button onClick={() => onGo('readinglog')} className="px-2 rounded-xl bg-white/10 text-[11px] font-semibold">Log</button>
           </div>
         </section>
-        <button onClick={() => onGo('year')} className="p-4 rounded-3xl bg-gradient-to-br from-orange-500 to-amber-500 text-white text-left space-y-2" aria-label="Yearly goal">
+        <button onClick={() => onGo('year')} className="p-4 rounded-3xl bg-gradient-to-br from-amber-600 to-amber-800 text-white text-left space-y-2" aria-label="Yearly goal">
           <p className="text-[10px] uppercase tracking-wider font-semibold text-white/80 flex items-center gap-1"><Target className="w-3.5 h-3.5" /> {year} goal</p>
           <p className="text-2xl font-black">{finishedThisYear}<span className="text-sm font-bold text-white/80">{goal ? ` / ${goal} books` : ' books finished'}</span></p>
           {goal ? (

@@ -8,6 +8,15 @@
   .shadow-xs { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }
 }
 
+/* The "old library" look: headings in a bookish serif, a little warmth in the page. */
+h1, h2, h3, .font-serif { font-family: 'EB Garamond', 'Iowan Old Style', Georgia, serif; }
+:is(h1, h2, h3).tracking-tight { letter-spacing: 0; }
+:is(h1, h2, h3).font-bold, :is(h1, h2, h3).font-black { font-weight: 600; }
+h2.text-xl { font-size: 1.6rem; line-height: 2rem; }
+h2.text-lg, h3.text-lg { font-size: 1.3rem; }
+h3.text-sm, h3.text-xs { font-size: 1.05rem; }
+::selection { background: #ecd7a3; color: #2e2318; }
+
 /* Respect the phone's notch / rounded corners when opened from the home screen */
 body {
   padding-top: env(safe-area-inset-top);

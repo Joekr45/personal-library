@@ -5,13 +5,13 @@ import { BookOpen, Library, AlertTriangle, User, Mail, Lock, Eye, EyeOff } from 
 // (Moved out of App.jsx; it receives the App state and actions it uses as props.)
 export default function AuthScreen({ authDisplayName, authEmail, authError, authMode, authPassword, family, handleAuthSubmit, hasUsers, inviteCode, isAuthSubmitting, setAuthDisplayName, setAuthEmail, setAuthError, setAuthMode, setAuthPassword, setInviteCode, setShowPassword, showPassword, signupMode }) {
   return (
-    <div className="min-h-screen w-full bg-[#0f1117] text-white flex flex-col justify-center items-center p-4 relative overflow-hidden select-none">
+    <div className="min-h-screen w-full bg-[#1e2f26] text-white flex flex-col justify-center items-center p-4 relative overflow-hidden select-none">
       <div className="absolute top-1/4 -left-20 w-96 h-96 bg-orange-600/20 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-amber-600/20 rounded-full blur-3xl pointer-events-none" />
 
       <div className="max-w-md w-full bg-slate-900/80 backdrop-blur-2xl border border-slate-800 rounded-3xl p-8 shadow-2xl relative z-10 space-y-6">
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-orange-500 via-amber-500 to-amber-400 flex items-center justify-center text-white shadow-lg shadow-orange-500/30">
+          <div className="w-14 h-14 mx-auto rounded-full bg-orange-600 border-2 border-amber-500 text-amber-400 flex items-center justify-center text-white shadow-lg shadow-orange-500/30">
             <BookOpen className="w-7 h-7" />
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white">Personal Library</h1>
@@ -25,7 +25,7 @@ export default function AuthScreen({ authDisplayName, authEmail, authError, auth
             type="button"
             onClick={() => { setAuthMode('login'); setAuthError(''); }}
             className={`flex-1 py-2 rounded-xl transition-all ${
-              authMode === 'login' ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              authMode === 'login' ? 'bg-amber-500 text-[#1e2f26] shadow-sm' : 'text-slate-400 hover:text-white'
             }`}
           >
             Sign In
@@ -34,7 +34,7 @@ export default function AuthScreen({ authDisplayName, authEmail, authError, auth
             type="button"
             onClick={() => { setAuthMode('register'); setAuthError(''); }}
             className={`flex-1 py-2 rounded-xl transition-all ${
-              authMode === 'register' ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              authMode === 'register' ? 'bg-amber-500 text-[#1e2f26] shadow-sm' : 'text-slate-400 hover:text-white'
             }`}
           >
             Create Account
@@ -131,7 +131,7 @@ export default function AuthScreen({ authDisplayName, authEmail, authError, auth
           <button
             type="submit"
             disabled={isAuthSubmitting}
-            className="w-full py-3 disabled:opacity-60 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 active:scale-[0.99] text-white text-xs font-bold rounded-xl shadow-lg shadow-orange-500/25 transition-all mt-2"
+            className="w-full py-3 disabled:opacity-60 bg-amber-500 hover:bg-amber-400 active:scale-[0.99] text-[#1e2f26] text-xs font-bold rounded-xl shadow-lg shadow-orange-500/25 transition-all mt-2"
           >
             {isAuthSubmitting ? 'One moment…' : authMode === 'login' ? 'Sign In to My Library' : 'Create My Account & Enter'}
           </button>

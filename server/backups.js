@@ -34,7 +34,8 @@ export function createBackups({ db, dataDir }) {
 
   // Make today's backup (replacing an earlier one from today) and delete the oldest beyond 7.
   const backupNow = () => {
-    const date = new Date().toISOString().slice(0, 10);
+    // Named by the local date (TZ), so an evening backup isn't labelled with tomorrow's date.
+    const date = new Date().toLocaleDateString('en-CA');
     const target = path.join(dir, `library-${date}.db`);
     fs.rmSync(target, { force: true });
     db.exec(`VACUUM INTO ${sqlString(target)}`);
