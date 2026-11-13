@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -204,6 +204,19 @@ function migrate(db) {
           deleted_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX trash_user ON trash(user_id);
+      `);
+    }
+    if (current < 9) {
+      db.exec(`
+        -- Browsers/phones that turned notifications on.
+        CREATE TABLE push_subscriptions (
+          id         TEXT PRIMARY KEY,
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          endpoint   TEXT NOT NULL UNIQUE,
+          p256dh     TEXT NOT NULL,
+          auth       TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
       `);
     }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);

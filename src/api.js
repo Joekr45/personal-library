@@ -158,3 +158,10 @@ api.emptyTrash = (body) => request('POST', '/api/trash/empty', body);
 api.mergeBooks = (keepId, mergeIds) => request('POST', '/api/books/merge', { keepId, mergeIds });
 api.batchBooks = (body) => request('POST', '/api/books/batch', body);
 api.restoreBackup = (file) => request('POST', '/api/admin/backups/restore', { file });
+
+// Notifications
+api.pushInfo = () => request('GET', '/api/push');
+api.pushSubscribe = (subscription) => request('POST', '/api/push/subscribe', { subscription });
+api.pushUnsubscribe = (endpoint) => request('POST', '/api/push/unsubscribe', { endpoint });
+api.pushPrefs = (changes) => request('PUT', '/api/push/prefs', changes).then(d => d.prefs);
+api.pushTest = () => request('POST', '/api/push/test');

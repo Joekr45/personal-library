@@ -15,6 +15,7 @@ const json = (text, fallback) => { try { return JSON.parse(text); } catch { retu
 
 export function createSocial(ctx) {
   const { db, requireUser, requireFamily, readJson, HttpError, cleanText, getSetting, setSetting, lookup } = ctx;
+  const notify = ctx.notify || (() => {});
 
   // ----- helpers -----
   const surname = (author) => String(author || '').split(',')[0].trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/\s+/).pop() || '';
@@ -51,6 +52,15 @@ export function createSocial(ctx) {
   const addActivity = (userId, type, book, detail = null) => {
     db.prepare('INSERT INTO activity (id, user_id, type, book_id, book, detail) VALUES (?, ?, ?, ?, ?, ?)')
       .run(crypto.randomUUID(), userId, type, book.bookId || null, JSON.stringify(book), detail ? JSON.stringify(detail) : null);
+    // Family who asked for it get a notification when someone finishes or reviews a book.
+    if ((type === 'finished' || type === 'reviewed') && activityOn(userId)) {
+      const who = db.prepare('SELECT display_name, circle FROM users WHERE id = ?').get(userId);
+      if (who && who.circle !== 'friend') {
+        for (const u of db.prepare("SELECT id FROM users WHERE id != ? AND circle != 'friend'").all(userId)) {
+          notify(u.id, 'activity', { title: `${who.display_name} ${type === 'finished' ? 'finished' : 'reviewed'} a book`, body: `${book.title} by ${book.author}${detail?.rating ? ` ${'★'.repeat(Math.floor(detail.rating))}` : ''}`, url: '/?section=activity', tag: `activity-${userId}` });
+        }
+      }
+    }
   };
 
   // Called whenever someone adds or changes a book: writes feed events and marks reading days.
@@ -253,8 +263,10 @@ export function createSocial(ctx) {
       const to = db.prepare('SELECT id FROM users WHERE id = ?').get(String(body.toUserId || ''));
       if (!to || to.id === me.id) throw new HttpError(400, 'Who is it for?');
       const book = cleanBook(body.book);
+      const note = cleanText(body.note, 1000) || null;
       db.prepare('INSERT INTO recommendations (id, from_user, to_user, book, note) VALUES (?, ?, ?, ?, ?)')
-        .run(crypto.randomUUID(), me.id, to.id, JSON.stringify(book), cleanText(body.note, 1000) || null);
+        .run(crypto.randomUUID(), me.id, to.id, JSON.stringify(book), note);
+      notify(to.id, 'recommendations', { title: `${me.displayName} recommended a book`, body: `${book.title} by ${book.author}${note ? ` — “${note.slice(0, 120)}”` : ''}`, url: '/?section=activity', tag: 'recommendation' });
       return { status: 201, body: { ok: true } };
     },
 
@@ -480,8 +492,13 @@ export function createSocial(ctx) {
       const text = cleanText(body.text, 4000);
       if (!text) throw new HttpError(400, 'Write something first.');
       const page = Math.round(Number(body.page));
+      const atPage = page > 0 && page <= 100000 ? page : null;
       db.prepare('INSERT INTO club_posts (id, club_id, user_id, text, page) VALUES (?, ?, ?, ?, ?)')
-        .run(crypto.randomUUID(), club.id, me.id, text, page > 0 && page <= 100000 ? page : null);
+        .run(crypto.randomUUID(), club.id, me.id, text, atPage);
+      // Tell the other members, without giving away anything about pages they may not have reached.
+      for (const m of db.prepare('SELECT user_id FROM club_members WHERE club_id = ? AND user_id != ?').all(club.id, me.id)) {
+        notify(m.user_id, 'clubs', { title: `${me.displayName} posted in ${club.name}`, body: atPage ? `A post about page ${atPage} (open the club to read it).` : text.slice(0, 140), url: '/?section=clubs', tag: `club-${club.id}` });
+      }
       return handle({ ...req, method: 'GET', headers: req.headers, url: req.url }, `/api/clubs/${club.id}`);
     }
     if ((r = m(/^\/api\/clubs\/([0-9a-f-]{36})\/posts\/([0-9a-f-]{36})$/)) && req.method === 'DELETE') {

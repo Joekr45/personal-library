@@ -11,6 +11,7 @@ import { createHardcover, HardcoverError, cleanToken } from './hardcover.js';
 import { createBackups } from './backups.js';
 import { createSocial } from './social.js';
 import { createLibraryTools } from './library-tools.js';
+import { createPush } from './push.js';
 import { classifyCode } from '../shared/isbn.js';
 import {
   SESSION_COOKIE, hashPassword, verifyPassword, createSession, userForSession,
@@ -359,6 +360,53 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   };
 
   // ---------- API routes ----------
+  // New books from your authors (and series), for "New for You" and the daily notifications.
+  const newReleasesFor = async (user) => {
+    const mine = db.prepare('SELECT data FROM books WHERE user_id = ?').all(user.id).map(r => JSON.parse(r.data));
+    const have = new Set(mine.map(b => lookup.mainTitleKey(b.workTitle)));
+    const dismissed = new Set(JSON.parse(getSetting(`dismissed:${user.id}`) || '[]'));
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 12);
+    const cutoffText = cutoff.toISOString().slice(0, 10);
+
+    // Your 15 most-collected authors (first-listed author of each book)
+    const counts = new Map();
+    for (const b of mine) {
+      const name = String(b.author || '').split(',')[0].trim();
+      if (name && name !== 'Unknown Author') counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    const followed = JSON.parse(getSetting(`follows:${user.id}`) || '[]').map(a => a.name);
+    const authors = [...new Set([...followed, ...[...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name]) => name)])].slice(0, 40);
+
+    const found = new Map();
+    for (const name of authors) {
+      for (const r of await lookup.recentByAuthor(name)) {
+        if (!r.date || r.date < cutoffText || have.has(r.titleKey) || dismissed.has(r.id)) continue;
+        if (!found.has(r.titleKey)) found.set(r.titleKey, { ...r, reason: followed.includes(name) ? `New from ${name} (you follow)` : `New from ${name}` });
+      }
+    }
+
+    // Newest books in series you collect (needs Hardcover)
+    if (getSetting('hardcover_token')) {
+      const seriesIds = [...new Set(mine.map(b => b.hardcoverSeriesId).filter(Boolean))].slice(0, 20);
+      for (const id of seriesIds) {
+        let series = null;
+        try { series = await hardcover.seriesBooks(id); } catch { continue; }
+        for (const b of series?.books || []) {
+          const key = lookup.mainTitleKey(b.title);
+          const hcId = `hc-${b.hardcoverId}`;
+          if (!b.year || Number(b.year) < cutoff.getFullYear() || have.has(key) || dismissed.has(hcId)) continue;
+          const existing = found.get(key);
+          if (existing) existing.reason = `${series.name} #${b.position}`;
+          else found.set(key, { id: hcId, title: b.title, author: mine.find(m => m.hardcoverSeriesId === id)?.author || '', date: b.year, cover: b.cover, isbn13: null, reason: `${series.name} #${b.position}`, series: series.name, seriesNumber: b.position, hardcoverSeriesId: id });
+        }
+      }
+    }
+
+    const releases = [...found.values()].map(({ titleKey, ...r }) => r).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    return { releases, authorsChecked: authors.length };
+  };
+
   const routes = {
     'GET /api/health': () => ({ status: 200, body: { ok: true } }),
 
@@ -720,49 +768,7 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
     // New and upcoming books from the authors and series in your library.
     'GET /api/new-releases': async (req) => {
       const user = requireUser(req);
-      const mine = db.prepare('SELECT data FROM books WHERE user_id = ?').all(user.id).map(r => JSON.parse(r.data));
-      const have = new Set(mine.map(b => lookup.mainTitleKey(b.workTitle)));
-      const dismissed = new Set(JSON.parse(getSetting(`dismissed:${user.id}`) || '[]'));
-      const cutoff = new Date();
-      cutoff.setMonth(cutoff.getMonth() - 12);
-      const cutoffText = cutoff.toISOString().slice(0, 10);
-
-      // Your 15 most-collected authors (first-listed author of each book)
-      const counts = new Map();
-      for (const b of mine) {
-        const name = String(b.author || '').split(',')[0].trim();
-        if (name && name !== 'Unknown Author') counts.set(name, (counts.get(name) || 0) + 1);
-      }
-      const followed = JSON.parse(getSetting(`follows:${user.id}`) || '[]').map(a => a.name);
-      const authors = [...new Set([...followed, ...[...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name]) => name)])].slice(0, 40);
-
-      const found = new Map();
-      for (const name of authors) {
-        for (const r of await lookup.recentByAuthor(name)) {
-          if (!r.date || r.date < cutoffText || have.has(r.titleKey) || dismissed.has(r.id)) continue;
-          if (!found.has(r.titleKey)) found.set(r.titleKey, { ...r, reason: followed.includes(name) ? `New from ${name} (you follow)` : `New from ${name}` });
-        }
-      }
-
-      // Newest books in series you collect (needs Hardcover)
-      if (getSetting('hardcover_token')) {
-        const seriesIds = [...new Set(mine.map(b => b.hardcoverSeriesId).filter(Boolean))].slice(0, 20);
-        for (const id of seriesIds) {
-          let series = null;
-          try { series = await hardcover.seriesBooks(id); } catch { continue; }
-          for (const b of series?.books || []) {
-            const key = lookup.mainTitleKey(b.title);
-            const hcId = `hc-${b.hardcoverId}`;
-            if (!b.year || Number(b.year) < cutoff.getFullYear() || have.has(key) || dismissed.has(hcId)) continue;
-            const existing = found.get(key);
-            if (existing) existing.reason = `${series.name} #${b.position}`;
-            else found.set(key, { id: hcId, title: b.title, author: mine.find(m => m.hardcoverSeriesId === id)?.author || '', date: b.year, cover: b.cover, isbn13: null, reason: `${series.name} #${b.position}`, series: series.name, seriesNumber: b.position, hardcoverSeriesId: id });
-          }
-        }
-      }
-
-      const releases = [...found.values()].map(({ titleKey, ...r }) => r).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-      return { status: 200, body: { releases, authorsChecked: authors.length } };
+      return { status: 200, body: await newReleasesFor(user) };
     },
 
     'POST /api/new-releases/dismiss': async (req) => {
@@ -1007,8 +1013,76 @@ export function createServer({ dataDir, distDir, allowRegistration = true, signu
   };
 
   // Routes with a book id in the address: /api/books/<id>
+  // Notifications to phones and computers (server/push.js)
+  const push = createPush({ db, getSetting, setSetting, fetchImpl });
+  Object.assign(routes, {
+    'GET /api/push': (req) => {
+      const user = requireUser(req);
+      return { status: 200, body: { publicKey: push.publicKey(), devices: push.devices(user.id), prefs: push.prefs(user.id) } };
+    },
+    'POST /api/push/subscribe': async (req) => {
+      const user = requireUser(req);
+      try { push.subscribe(user.id, (await readJson(req)).subscription); } catch (err) { throw new HttpError(400, err.message); }
+      return { status: 200, body: { devices: push.devices(user.id) } };
+    },
+    'POST /api/push/unsubscribe': async (req) => {
+      const user = requireUser(req);
+      push.unsubscribe(user.id, (await readJson(req)).endpoint);
+      return { status: 200, body: { devices: push.devices(user.id) } };
+    },
+    'PUT /api/push/prefs': async (req) => {
+      const user = requireUser(req);
+      return { status: 200, body: { prefs: push.setPrefs(user.id, await readJson(req)) } };
+    },
+    'POST /api/push/test': async (req) => {
+      const user = requireUser(req);
+      const sent = await push.notify(user.id, null, { title: 'Personal Library', body: 'Notifications are working! 📚', url: '/', tag: 'test' });
+      return { status: 200, body: { sent } };
+    }
+  });
+
+  // Once a day: tell people about overdue loans and new books from their authors (each only once).
+  const dailyNotifications = async () => {
+    const today = new Date().toLocaleDateString('en-CA');
+    for (const user of db.prepare('SELECT id, email, display_name, role, color, circle FROM users').all()) {
+      if (!push.devices(user.id)) continue;
+      const sentBefore = new Set(JSON.parse(getSetting(`notified:${user.id}`) || '[]'));
+      const firstRun = !getSetting(`notified:${user.id}`);
+      const sentNow = [];
+      const books = db.prepare('SELECT id, data FROM books WHERE user_id = ?').all(user.id).map(r => ({ id: r.id, ...JSON.parse(r.data) }));
+      for (const b of books) {
+        const loan = (b.loans || []).find(l => !l.returnedOn);
+        if (!loan) continue;
+        const days = loan.lentOn ? Math.round((Date.parse(today) - Date.parse(loan.lentOn)) / 86400000) : 0;
+        const overdue = loan.dueOn ? loan.dueOn < today : days >= 30;
+        const key = `overdue:${b.id}:${loan.lentOn}`;
+        if (!overdue || sentBefore.has(key)) continue;
+        sentNow.push(key);
+        if (!firstRun) await push.notify(user.id, 'overdue', { title: `"${b.workTitle}" is overdue`, body: `Lent to ${loan.to}${loan.lentOn ? ` ${days} days ago` : ''}. Tap to send a reminder.`, url: '/?section=lent', tag: key });
+      }
+      if (push.prefs(user.id).newReleases) {
+        const { releases } = await newReleasesFor({ ...user, displayName: user.display_name }).catch(() => ({ releases: [] }));
+        const fresh = releases.filter(r => !sentBefore.has(`release:${r.id}`));
+        fresh.forEach(r => sentNow.push(`release:${r.id}`));
+        if (!firstRun && fresh.length) {
+          await push.notify(user.id, 'newReleases', {
+            title: fresh.length === 1 ? `New: ${fresh[0].title}` : `${fresh.length} new books from your authors`,
+            body: fresh.slice(0, 3).map(r => `${r.title} (${r.author})`).join(', '),
+            url: '/?section=new', tag: 'new-releases'
+          });
+        }
+      }
+      // (On the very first run we only note what already exists, so nobody gets a flood of old news.)
+      setSetting(`notified:${user.id}`, JSON.stringify([...sentBefore, ...sentNow].slice(-2000)));
+    }
+  };
+  if (startBackups) {
+    setTimeout(() => dailyNotifications().catch(err => console.error('notifications:', err.message)), 2 * 60 * 1000).unref?.();
+    setInterval(() => dailyNotifications().catch(err => console.error('notifications:', err.message)), 24 * 60 * 60 * 1000).unref?.();
+  }
+
   // Activity feed, recommendations, clubs, lists, reading log, gifts, discovery… (server/social.js)
-  const social = createSocial({ db, requireUser, requireFamily, readJson, HttpError, cleanText, getSetting, setSetting, lookup });
+  const social = createSocial({ db, requireUser, requireFamily, readJson, HttpError, cleanText, getSetting, setSetting, lookup, notify: push.notifySoon });
   Object.assign(routes, social.routes);
   // Never let the feed bookkeeping stop a book from saving.
   // Trash bin, merging duplicates, changing many books at once (server/library-tools.js)
