@@ -16,6 +16,8 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 ## Reading life
 
 - On a book's page: **star rating** (1–5, halves allowed), **started/finished dates** (filled in automatically when you mark a book Reading or Completed) and **notes**.
+- **My progress** (book page, while you're Reading it): the page you're on, the number of pages, **+10 / +25** buttons and a progress bar (also shown on the book's card). At the last page an **I finished it!** button marks it Finished.
+- **My Shelves**: put books on your own shelves (e.g. "Beach reads", "Signed copies", "Book club") from a book's page. They're listed in the menu with counts; on a shelf's page you can **rename** or **remove** the shelf (the books stay). Searching also matches shelf names. Your own Goodreads shelves come along when you import, and the spreadsheet export includes them.
 - **My Year** (menu): books finished this year, a **yearly goal** with "ahead/behind schedule", books per month, pages, average rating, top author, and **Up next in your series**.
 - Book lists have a **sort menu** (title, author, recently added, recently finished, rating, year published — remembered on each device) and **filters** (shelf, language, format, rating).
 
@@ -37,6 +39,17 @@ A self-hosted book-tracking web app: scan a book's barcode (or type the ISBN), a
 - **Home screen:** install the app on a phone so it opens full-screen like a normal app (needs an `https://` address; on plain `http://` it works as a bookmark).
 - **Change my password.**
 - **Owner only:** family accounts (book counts, set a new password for someone, remove an account), turn new sign-ups on/off, and backups.
+
+## Installing and updating on Unraid (one click)
+
+The repository includes an Unraid template (`unraid/personal-library.xml`). Install it once from the Unraid terminal:
+
+```
+mkdir -p /boot/config/plugins/dockerMan/templates-user && wget -qO /boot/config/plugins/dockerMan/templates-user/my-personal-library.xml https://raw.githubusercontent.com/Joekr45/personal-library/main/unraid/personal-library.xml
+```
+
+Then remove the old container (`docker rm -f personal-library` — your books are safe in the appdata folder), go to **Docker → Add Container**, choose **personal-library** from the Template list and click **Apply**.
+From then on, updates are on the Docker page: **Check for Updates**, then **apply update** next to Personal Library.
 
 ## Backups
 

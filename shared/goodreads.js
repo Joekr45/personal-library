@@ -60,6 +60,9 @@ export function readGoodreadsExport(text) {
     const review = get(r, 'My Review').replace(/<br\s*\/?>/gi, '\n');
     const privateNotes = get(r, 'Private Notes');
     const year = get(r, 'Original Publication Year') || get(r, 'Year Published');
+    // Your own Goodreads shelves (e.g. "favorites", "book-club") become shelves here too.
+    const builtIn = new Set(['read', 'to-read', 'currently-reading']);
+    const tags = [...new Set(get(r, 'Bookshelves').split(',').map(t => t.trim()).filter(t => t && !builtIn.has(t)))];
     return {
       shelf: get(r, 'Exclusive Shelf') || 'read',
       workTitle: title,
@@ -69,6 +72,7 @@ export function readGoodreadsExport(text) {
       rating,
       notes: [review, privateNotes].filter(Boolean).join('\n\n') || null,
       dateFinished: goodreadsDate(get(r, 'Date Read')),
+      ...(tags.length ? { tags } : {}),
       editions: [{
         id: `ed-gr-${get(r, 'Book Id') || Math.random().toString(36).slice(2)}`,
         title,

@@ -227,3 +227,26 @@ test('behind a proxy, each visitor is blocked separately (not everyone at once)'
   assert.equal(last.status, 429, 'the guesser is blocked');
   assert.equal((await attempt('198.51.100.20', 'correct horse')).status, 200, 'family member elsewhere still gets in');
 });
+
+test('my shelves (tags) and reading progress are saved and cleaned up', async () => {
+  const c = client();
+  await c('POST', '/api/auth/register', { email: 'shelves@example.com', password: 'long enough' });
+  const added = await c('POST', '/api/books', book('Fall of Giants', {
+    tags: ['  Beach reads ', 'beach READS', 'Signed', '', 42, 'x'.repeat(60)],
+    currentPage: '123.4'
+  }));
+  assert.equal(added.status, 201);
+  assert.deepEqual(added.body.book.tags, ['Beach reads', 'Signed', 'x'.repeat(40)]);
+  assert.equal(added.body.book.currentPage, 123);
+
+  const id = added.body.book.id;
+  const upd = await c('PUT', `/api/books/${id}`, { tags: 'not a list', currentPage: -5 });
+  assert.equal(upd.status, 200);
+  assert.deepEqual(upd.body.book.tags, []);
+  assert.equal(upd.body.book.currentPage, null);
+
+  await c('PUT', `/api/books/${id}`, { tags: ['Book club', 'Signed'], currentPage: 250 });
+  const csv = await c('GET', '/api/export/books.csv');
+  assert.match(csv.text, /Bookshelves,Current Page/);
+  assert.match(csv.text, /"Book club, Signed",250/);
+});

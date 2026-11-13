@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>personal-library</Name>
+  <Repository>ghcr.io/joekr45/personal-library:latest</Repository>
+  <Registry>https://github.com/Joekr45/personal-library/pkgs/container/personal-library</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Joekr45/personal-library/issues</Support>
+  <Project>https://github.com/Joekr45/personal-library</Project>
+  <Overview>Personal Library: a self-hosted book tracker. Scan barcodes, track reading, series, authors, wishlists and family shelves.</Overview>
+  <Category>MediaApp:Books</Category>
+  <WebUI>http://[IP]:[PORT:80]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/Joekr45/personal-library/main/public/icon-512.png</Icon>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <Config Name="Web port" Target="80" Default="8085" Mode="tcp" Description="Port to open the app on." Type="Port" Display="always" Required="true" Mask="false">8085</Config>
+  <Config Name="Data folder" Target="/data" Default="/mnt/user/appdata/personal-library" Mode="rw" Description="Your library database, covers and backups." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/personal-library</Config>
+  <Config Name="Time zone" Target="TZ" Default="America/New_York" Mode="" Description="Used for daily backups and dates." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="Sign-up mode" Target="SIGNUP_MODE" Default="invite" Mode="" Description="Starting sign-up rule: invite, open or closed (the Owner can change it in Settings)." Type="Variable" Display="advanced" Required="false" Mask="false">invite</Config>
+  <Config Name="Google Books API key" Target="GOOGLE_BOOKS_API_KEY" Default="" Mode="" Description="Optional. Raises Google Books' daily lookup limit." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+</Container>
